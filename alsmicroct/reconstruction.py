@@ -24,12 +24,6 @@ try:
     import dxchange
 except:
     print("warning: dxchange is not available")
-    
-try:
-    importlib.import_module('pyF3D')
-    import pyF3D
-except ImportError:
-    print("Warning: pyF3D not available")
 
 # run this from the command line:
 # python tomopy832.py
@@ -76,7 +70,6 @@ slice_dir = {
     'phase_retrieval': 'proj',
     'recon_mask': 'sino',
     'polar_ring': 'sino',
-    'bilateral_filter': 'both',
     'castTo8bit': 'both',
     'write_output': 'both'
 }
@@ -139,10 +132,6 @@ def recon(
     nmRatio = 1.0, # ratio of radius of circular mask to edge of reconstructed image (nm)
     nmSinoOrder = False, # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180 = False, # use 360 to 180 conversion
-    doBilateralFilter = False, # if True, uses bilateral filter on image just before write step
-                               # NOTE: image will be converted to 8bit if it is not already
-    bilateral_srad = 3, # spatial radius for bilateral filter (image will be converted to 8bit if not already)
-    bilateral_rrad = 30, # range radius for bilateral filter (image will be converted to 8bit if not already)
     castTo8bit = False, # convert data to 8bit before writing
     cast8bit_min=-10, # min value if converting to 8bit
     cast8bit_max=30, # max value if converting to 8bit
@@ -435,7 +424,7 @@ def recon(
                         tomo = tomo * bfexposureratio
                         print("correcting bfexposureratio")
                 elif func_name == 'minus_log':
-                    mx = np.float32(0.00000000000000000001)
+                    mx = np.float32(0.01) #setting min %transmission to 1% helps avoid streaking from very high absorbing areas
                     ne.evaluate('where(tomo>mx, tomo, mx)', out=tomo)
                     tomopy.minus_log(tomo, out=tomo)
                 elif func_name == 'beam_hardening':
@@ -511,8 +500,6 @@ def recon(
                     rec = tomopy.remove_ring(rec, theta_min=Rarc, rwidth=Rmaxwidth, thresh_max=Rtmax, thresh=Rthr, thresh_min=Rtmin,out=rec)
                 elif func_name == 'castTo8bit':
                     rec = convert8bit(rec, cast8bit_min, cast8bit_max)
-                elif func_name == 'bilateral_filter':
-                    rec = pyF3D.run_BilateralFilter(rec, spatialRadius=bilateral_srad, rangeRadius=bilateral_rrad)
                 elif func_name == 'write_output':
                     if sinoused[2] == 1:
                         dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
