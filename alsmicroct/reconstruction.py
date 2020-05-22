@@ -318,8 +318,6 @@ def recon(
         function_list.append('polar_ring')
     if castTo8bit:
         function_list.append('castTo8bit')
-    if doBilateralFilter:
-        function_list.append('bilateral_filter')
     function_list.append('write_output')
 
     # Figure out first direction to slice
