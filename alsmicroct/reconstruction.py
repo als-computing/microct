@@ -428,7 +428,7 @@ def recon(
                     tomo = tomopy.retrieve_phase(tomo, pixel_size=pxsize, dist=propagation_dist, energy=kev, alpha=alphaReg, pad=True)
                 
                 elif func_name == 'translation_correction':
-                    tomo = linear_translation_correction(tomo,dx=xshift,dy=yshift,interpolation=False):
+                    tomo = linear_translation_correction(tomo,dx=xshift,dy=yshift,interpolation=False)
                     
                 elif func_name == 'recon_mask':
                     tomo = tomopy.pad(tomo, 2, npad=npad, mode='edge')
@@ -626,7 +626,7 @@ def translate(data,dx=0,dy=0,interpolation=True):
             PaddedImage = np.pad(data[n,:,:],Npad,'constant')
             dataOut[n,:,:] = PaddedImage[Npad-drow:Npad+Nrow-drow,Npad-dcol:Npad+Ncol-dcol]  # shift image by dx and dy, replace original without padding
             
- return dataOut
+    return dataOut
 
     
 def linear_translation_correction(data,dx=100.5,dy=700.1,interpolation=True):
