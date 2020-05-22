@@ -31,65 +31,68 @@ try:
 except ImportError:
     print("Warning: pyF3D not available")
 
-#run this from the command line:
-#python tomopy832.py
-#it requires a separate file, which contains at minimum a list of filenames
-#on separate lines. Default name of this file is input832.txt, but you can use any
-#filename and run from the commandline as
-#python tomopy832.py yourinputfile.txt
-#If desired, on each line (separated by spaces) you can
-#include parameters to override the defaults. 
-#to do this you need pairs, first the name of the variable, then the desired value
-#For True/False, use 1/0.
-#You can generate these input files in excel, in which case use tab-separated
-#(or space separated). Some input overrides require multiple values,
-#these should be comma-separated (with no spaces). Example is sinoused
-#which would be e.g. 500,510,1 to get slices 500 through 509. For sinoused,
-#you can use first value -1 and second value number of slices to get that number
-#of slices from the middle of the stack. 
-#an example of the contents of the input file look like this:
+# run this from the command line:
+# python tomopy832.py
+# it requires a separate file, which contains at minimum a list of filenames
+# on separate lines. Default name of this file is input832.txt, but you can use any
+# filename and run from the commandline as
+# python tomopy832.py yourinputfile.txt
+# If desired, on each line (separated by spaces) you can
+# include parameters to override the defaults.
+# to do this you need pairs, first the name of the variable, then the desired value
+# For True/False, use 1/0.
+# You can generate these input files in excel, in which case use tab-separated
+# (or space separated). Some input overrides require multiple values,
+# these should be comma-separated (with no spaces). Example is sinoused
+# which would be e.g. 500,510,1 to get slices 500 through 509. For sinoused,
+# you can use first value -1 and second value number of slices to get that number
+# of slices from the middle of the stack.
+# an example of the contents of the input file look like this:
 
-#20150820_162025_Mvesparium_20948-131_pieceA_10x_x00y00.h5     cor    1196    sinoused    "-1,10,1"    doPhaseRetrieval    0 outputFilename c1196.0
-#20150820_162025_Mvesparium_20948-131_pieceA_10x_x00y00.h5     cor    1196.5    sinoused    "-1,10,1"    doPhaseRetrieval    0 outputFilename c1196.5
+# filename.h5 cor 1196 sinoused "-1,10,1" doPhaseRetrieval 0 outputFilename c1196.0
+# filename.h5 cor 1196.5 sinoused "-1,10,1" doPhaseRetrieval 0 outputFilename c1196.5
 
-#this was generated in excel and saved as txt tab separated, so the quotes were
-#added automatically by excel. Note also that for parameters expecting strings as
-#input (outputFilename for example), the program will choke if you put in a number.
+# this was generated in excel and saved as txt tab separated, so the quotes were
+# added automatically by excel. Note also that for parameters expecting strings as
+# input (outputFilename for example), the program will choke if you put in a number.
 
-#if cor is not defined in the parameters file, automated cor detection will happen
+# if cor is not defined in the parameters file, automated cor detection will happen
 
-#chunk_proj and chunk_sino handle memory management. If you are running out of memory, make one or both of those smaller.
+# chunk_proj and chunk_sino handle memory management.
+# If you are running out of memory, make one or both of those smaller.
 
 slice_dir = {
-'remove_outlier1d': 'sino',
-'remove_outlier2d': 'proj',
-'normalize_nf': 'sino',
-'normalize': 'both',
-'minus_log': 'both',
-'beam_hardening': 'both',
-'remove_stripe_fw': 'sino',
-'remove_stripe_ti': 'sino',
-'remove_stripe_sf': 'sino',
-'do_360_to_180': 'sino',
-'correcttilt': 'proj',
-'phase_retrieval': 'proj',
-'recon_mask': 'sino',
-'polar_ring': 'sino',
-'bilateral_filter': 'both',
-'castTo8bit': 'both',
-'write_output': 'both'
+    'remove_outlier1d': 'sino',
+    'remove_outlier2d': 'proj',
+    'normalize_nf': 'sino',
+    'normalize': 'both',
+    'minus_log': 'both',
+    'beam_hardening': 'both',
+    'remove_stripe_fw': 'sino',
+    'remove_stripe_ti': 'sino',
+    'remove_stripe_sf': 'sino',
+    'do_360_to_180': 'sino',
+    'correcttilt': 'proj',
+    'phase_retrieval': 'proj',
+    'recon_mask': 'sino',
+    'polar_ring': 'sino',
+    'bilateral_filter': 'both',
+    'castTo8bit': 'both',
+    'write_output': 'both'
 }
 
-#to profile memory, uncomment the following line
-#and then run program from command line as
-#python -m memory_profiler tomopy832.py
-#(you have to have memory_profiler installed)
-#@profile
+# to profile memory, uncomment the following line
+# and then run program from command line as
+# python -m memory_profiler tomopy832.py
+# (you have to have memory_profiler installed)
+# @profile
 def recon(
     filename,
-    inputPath = './',
-    outputPath = None,
-    outputFilename = None,
+    bffilename = None,
+    inputPath = './', #input path, location of the data set to reconstruct
+    outputPath = None,# define an output path (default is inputPath), a sub-folder will be created based on file name
+    outputFilename = None, #file name for output tif files (a number and .tiff will be added). default is based on input filename
+    fulloutputPath = None, # definte the full output path, no automatic sub-folder will be created
     doOutliers1D = False, # outlier removal in 1d (along sinogram columns)
     outlier_diff1D = 750, # difference between good data and outlier data (outlier removal)
     outlier_size1D = 3, # radius around each pixel to look for outliers (outlier removal)
@@ -136,7 +139,8 @@ def recon(
     nmRatio = 1.0, # ratio of radius of circular mask to edge of reconstructed image (nm)
     nmSinoOrder = False, # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180 = False, # use 360 to 180 conversion
-    doBilateralFilter = False, # if True, uses bilateral filter on image just before write step # NOTE: image will be converted to 8bit if it is not already
+    doBilateralFilter = False, # if True, uses bilateral filter on image just before write step
+                               # NOTE: image will be converted to 8bit if it is not already
     bilateral_srad = 3, # spatial radius for bilateral filter (image will be converted to 8bit if not already)
     bilateral_rrad = 30, # range radius for bilateral filter (image will be converted to 8bit if not already)
     castTo8bit = False, # convert data to 8bit before writing
@@ -146,47 +150,65 @@ def recon(
     chunk_proj = 100, # chunk size in projection direction
     chunk_sino = 100, # chunk size in sinogram direction
     npad = None, # amount to pad data before reconstruction
-    projused = None, #should be slicing in projection dimension (start,end,step)
-    sinoused = None, #should be sliceing in sinogram dimension (start,end,step). If first value is negative, it takes the number of slices from the second value in the middle of the stack.
-    correcttilt = 0, #tilt dataset
+    projused = None, # should be slicing in projection dimension (start,end,step) Be sure to add one to the end as stop in python means the last value is omitted
+    sinoused = None, # should be sliceing in sinogram dimension (start,end,step). If first value is negative, it takes the number of slices from the second value in the middle of the stack.
+    correcttilt = 0, # tilt dataset
     tiltcenter_slice = None, # tilt center (x direction)
     tiltcenter_det = None, # tilt center (y direction)
-    angle_offset = 0, #this is the angle offset from our default (270) so that tomopy yields output in the same orientation as previous software (Octopus)
-    anglelist = None, #if not set, will assume evenly spaced angles which will be calculated by the angular range and number of angles found in the file. if set to -1, will read individual angles from each image. alternatively, a list of angles can be passed.
-    doBeamHardening = False, #turn on beam hardening correction, based on "Correction for beam hardening in computed tomography", Gabor Herman, 1979 Phys. Med. Biol. 24 81
-    BeamHardeningCoefficients = None, #6 values, tomo = a0 + a1*tomo + a2*tomo^2 + a3*tomo^3 + a4*tomo^4 + a5*tomo^5
-    projIgnoreList = None, #projections to be ignored in the reconstruction (for simplicity in the code, they will not be removed and will be processed as all other projections but will be set to zero absorption right before reconstruction.
-    *args, **kwargs):
-    
+    angle_offset = 0, # this is the angle offset from our default (270) so that tomopy yields output in the same orientation as previous software (Octopus)
+    anglelist = None, # if not set, will assume evenly spaced angles which will be calculated by the angular range and number of angles found in the file. if set to -1, will read individual angles from each image. alternatively, a list of angles can be passed.
+    doBeamHardening = False, # turn on beam hardening correction, based on "Correction for beam hardening in computed tomography", Gabor Herman, 1979 Phys. Med. Biol. 24 81
+    BeamHardeningCoefficients = None, # 6 values, tomo = a0 + a1*tomo + a2*tomo^2 + a3*tomo^3 + a4*tomo^4 + a5*tomo^5
+    projIgnoreList = None, # projections to be ignored in the reconstruction (for simplicity in the code, they will not be removed and will be processed as all other projections but will be set to zero absorption right before reconstruction.
+    bfexposureratio = 1 #ratio of exposure time of bf to exposure time of sample
+#    *args, **kwargs
+    ):
+
     start_time = time.time()
     print("Start {} at:".format(filename)+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
-    
-    outputPath = inputPath if outputPath is None else outputPath
 
-    outputFilename = filename if outputFilename is None else outputFilename
-    outputFilename = outputFilename.replace('.h5','')
-    tempfilenames = [outputPath+'tmp0.h5',outputPath+'tmp1.h5']
-    filenametowrite = outputPath+'/rec'+filename.strip(".h5")+'/'+outputFilename
-    #filenametowrite = outputPath+'/rec'+filename+'/'+outputFilename
-    
+    outputFilename = os.path.splitext(filename)[0] if outputFilename is None else outputFilename
+    outputPath = inputPath+'rec'+os.path.splitext(filename)[0]+'/' if outputPath is None else outputPath+'rec'+os.path.splitext(filename)[0]+'/'
+    fulloutputPath = outputPath if fulloutputPath is None else fulloutputPath
+    tempfilenames = [fulloutputPath+'tmp0.h5',fulloutputPath+'tmp1.h5']
+    filenametowrite = fulloutputPath+outputFilename
+    print(filenametowrite)
+
     print("cleaning up previous temp files", end="")
     for tmpfile in tempfilenames:
         try:
             os.remove(tmpfile)
         except OSError:
             pass
-    
+
     print(", reading metadata")
-    
+
     datafile = h5py.File(inputPath+filename, 'r')
-    gdata = dict(dxchange.reader._find_dataset_group(datafile).attrs) 
+    gdata = dict(dxchange.reader._find_dataset_group(datafile).attrs)
     pxsize = float(gdata['pxsize'])/10 # /10 to convert units from mm to cm
     numslices = int(gdata['nslices'])
     numangles = int(gdata['nangles'])
+    print('There are ' + str(numslices) + ' sinograms and ' + str(numangles) + ' projections')
     angularrange = float(gdata['arange'])
     numrays = int(gdata['nrays'])
     npad = int(np.ceil(numrays * np.sqrt(2)) - numrays)//2 if npad is None else npad
-    projused = (0,numangles-1,1) if projused is None else projused
+    if projused is not None and (projused[1] > numangles-1 or projused[0] < 0): #allows program to deal with out of range projection values
+        if projused[1] > numangles:
+            print("End Projection value greater than number of angles. Value has been lowered to the number of angles " + str(numangles))
+            projused = (projused[0], numangles, projused[2])
+        if projused[0] < 0:
+            print("Start Projection value less than zero. Value raised to 0")
+            projused = (0, projused[1], projused[2])
+    if projused is None:
+        projused = (0,numangles,1)
+    else:
+    #if projused is different than default, need to chnage numangles and angularrange
+    #dula attempting to do this with these two lines, we'll see if it works! 11/16/17
+        testrange = range(projused[0],projused[1],projused[2])
+        #+1 because we need to compensate for the range functions last value always being one less than the second arg
+        angularrange = (angularrange/(numangles-1))*(projused[1]-projused[0])
+        # want angular range to stay constant if we keep the end values consistent
+        numangles = len(testrange)
 
 #    ndark = int(gdata['num_dark_fields'])
 #    ind_dark = list(range(0, ndark))
@@ -203,12 +225,14 @@ def recon(
     else:
         group_flat = None
     ind_tomo = list(range(0, numangles))
-    floc_independent = dxchange.reader._map_loc(ind_tomo, group_flat)        
+    floc_independent = dxchange.reader._map_loc(ind_tomo, group_flat)
 
-    #figure out the angle list (a list of angles, one per projection image)
+    # figure out the angle list (a list of angles, one per projection image)
     dtemp = datafile[list(datafile.keys())[0]]
     fltemp = list(dtemp.keys())
     firstangle = float(dtemp[fltemp[0]].attrs.get('rot_angle',0))
+    anglegap = angularrange/(numangles-1)
+    firstangle += anglegap*projused[0] #accounting for projused argument
     if anglelist is None:
         #the offset angle should offset from the angle of the first image, which is usually 0, but in the case of timbir data may not be.
         #we add the 270 to be inte same orientation as previous software used at bl832
@@ -218,47 +242,44 @@ def recon(
         anglelist = np.zeros(shape=numangles)
         for icount in range(0,numangles):
             anglelist[icount] = np.pi/180*(270 + angle_offset - float(dtemp[fltemp[icount]].attrs['rot_angle']))
-            
-    #if projused is different than default, need to chnage numangles and angularrange
-    
-    #can't do useNormalize_nf and doOutliers2D at the same time, or doOutliers2D and doOutliers1D at the same time, b/c of the way we chunk, for now just disable that
-    if useNormalize_nf==True and doOutliers2D==True:
-        useNormalize_nf = False
-        print("we cannot currently do useNormalize_nf and doOutliers2D at the same time, turning off useNormalize_nf")
-    if doOutliers2D==True and doOutliers1D==True:
-        doOutliers1D = False
-        print("we cannot currently do doOutliers1D and doOutliers2D at the same time, turning off doOutliers1D")
-    
+
     #figure out how user can pass to do central x number of slices, or set of slices dispersed throughout (without knowing a priori the value of numslices)
     if sinoused is None:
         sinoused = (0,numslices,1)
     elif sinoused[0]<0:
         sinoused=(int(np.floor(numslices/2.0)-np.ceil(sinoused[1]/2.0)),int(np.floor(numslices/2.0)+np.floor(sinoused[1]/2.0)),1)
-    
-    num_proj_per_chunk = np.minimum(chunk_proj,projused[1]-projused[0])
-    numprojchunks = (projused[1]-projused[0]-1)//num_proj_per_chunk+1
-    num_sino_per_chunk = np.minimum(chunk_sino,sinoused[1]-sinoused[0])
-    numsinochunks = (sinoused[1]-sinoused[0]-1)//num_sino_per_chunk+1
-    numprojused = (projused[1]-projused[0])//projused[2]
-    numsinoused = (sinoused[1]-sinoused[0])//sinoused[2]
+
+    numprojused = len(range(projused[0],projused[1],projused[2]))   # number of total projections. We add 1 to include the last projection
+    numsinoused = len(range(sinoused[0],sinoused[1],sinoused[2]))   # number of total sinograms. We add 1 to include the last projection
+    num_proj_per_chunk = np.minimum(chunk_proj,numprojused)           # sets the chunk size to either all of the projections used or the chunk size
+    numprojchunks = (numprojused-1)//num_proj_per_chunk+1             # adding 1 fixes the case of the number of projections not being a factor of the chunk size. Subtracting 1 fixes the edge case where the number of projections is a multiple of the chunk size
+    num_sino_per_chunk = np.minimum(chunk_sino,numsinoused)           # same as num_proj_per_chunk
+    numsinochunks = (numsinoused-1)//num_sino_per_chunk+1             # adding 1 fixes the case of the number of sinograms not being a factor of the chunk size. Subtracting 1 fixes the edge case where the number of sinograms is a multiple of the chunk size
     
     BeamHardeningCoefficients = (0, 1, 0, 0, 0, .1) if BeamHardeningCoefficients is None else BeamHardeningCoefficients
 
     if cor is None:
-        print("Detecting center of rotation", end="") 
+        print("Detecting center of rotation", end="")
         if angularrange>300:
             lastcor = int(np.floor(numangles/2)-1)
         else:
             lastcor = numangles-1
-        #I don't want to see the warnings about the reader using a deprecated variable in dxchange
+        # I don't want to see the warnings about the reader using a deprecated variable in dxchange
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,ind_tomo=(0,lastcor))
+            if bffilename is not None:
+                tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(inputPath+bffilename)
+                flat = tomobf
         tomo = tomo.astype(np.float32)
         if useNormalize_nf:
             tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
+            if bfexposureratio != 1:
+                tomo = tomo*bfexposureratio
         else:
             tomopy.normalize(tomo, flat, dark, out=tomo)
+            if bfexposureratio != 1:
+                tomo = tomo*bfexposureratio
 
         if corFunction == 'vo':
             # same reason for catching warnings as above
@@ -277,8 +298,7 @@ def recon(
         print(", {}".format(cor))
     else:
         print("using user input center of {}".format(cor))
-        
-    
+
     function_list = []
 
     if doOutliers1D:
@@ -312,14 +332,13 @@ def recon(
     if doBilateralFilter:
         function_list.append('bilateral_filter')
     function_list.append('write_output')
-        
-    
+
     # Figure out first direction to slice
     for func in function_list:
         if slice_dir[func] != 'both':
             axis = slice_dir[func]
             break
-    
+
     done = False
     curfunc = 0
     curtemp = 0
@@ -330,13 +349,49 @@ def recon(
             niter = numsinochunks
         for y in range(niter): # Loop over chunks
             print("{} chunk {} of {}".format(axis, y+1, niter))
-            if curfunc==0:
+            # The standard case. Unless the combinations below are in our function list, we read darks and flats normally, and on next chunck proceed to "else."
+            if curfunc == 0 and not (('normalize_nf' in function_list and 'remove_outlier2d' in function_list) or ('remove_outlier1d' in function_list and 'remove_outlier2d' in function_list)):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     if axis=='proj':
-                        tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,ind_tomo=range(y*num_proj_per_chunk+projused[0],np.minimum((y + 1)*num_proj_per_chunk+projused[0],numangles)),sino=(sinoused[0],sinoused[1], sinoused[2]) )
+                        tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,
+                            ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
+                            sino=(sinoused[0],sinoused[1], sinoused[2]))
                     else:
-                        tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*num_sino_per_chunk+sinoused[0],numslices),1) )
+                        tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,
+                            ind_tomo=range(projused[0],projused[1],projused[2]),
+                            sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+            # Handles the initial reading of scans. Flats and darks are not read in, because the chunking direction will swap before we normalize. We read in darks when we normalize.
+            elif curfunc == 0:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    if axis=='proj':
+                        tomo = read_als_832h5_tomo_only(inputPath+filename,
+                            ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
+                            sino=(sinoused[0],sinoused[1], sinoused[2]))
+                    else:
+                        tomo = read_als_832h5_tomo_only(inputPath+filename,
+                            ind_tomo=range(projused[0],projused[1],projused[2]),
+                            sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+            # Handles the reading of darks and flats, once we know the chunking direction will not change before normalizing.
+            elif ('remove_outlier2d' == function_list[curfunc] and 'normalize' in function_list) or 'normalize_nf' == function_list[curfunc]:
+                if axis == 'proj':
+                    start, end = y * num_proj_per_chunk, np.minimum((y + 1) * num_proj_per_chunk,numprojused)
+                    tomo = dxchange.reader.read_hdf5(tempfilenames[curtemp],'/tmp/tmp',slc=((start,end,1),(0,numslices,1),(0,numrays,1))) #read in intermediate file
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        flat, dark, floc = read_als_832h5_non_tomo(inputPath+filename,
+                            ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
+                            sino=(sinoused[0],sinoused[1], sinoused[2]))
+                else:
+                    start, end = y * num_sino_per_chunk, np.minimum((y + 1) * num_sino_per_chunk,numsinoused)
+                    tomo = dxchange.reader.read_hdf5(tempfilenames[curtemp],'/tmp/tmp',slc=((0,numangles,1),(start,end,1),(0,numrays,1)))
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        flat, dark, floc = read_als_832h5_non_tomo(inputPath+filename,
+                            ind_tomo=range(projused[0],projused[1],projused[2]),
+                            sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+            # Anything after darks and flats have been read or the case in which remove_outlier2d is the current/2nd function and the previous case fails.
             else:
                 if axis=='proj':
                     start, end = y * num_proj_per_chunk, np.minimum((y + 1) * num_proj_per_chunk,numprojused)
@@ -370,15 +425,22 @@ def recon(
                 elif func_name == 'normalize_nf':
                     tomo = tomo.astype(np.float32,copy=False)
                     tomopy.normalize_nf(tomo, flat, dark, floc_independent, out=tomo) #use floc_independent b/c when you read file in proj chunks, you don't get the correct floc returned right now to use here.
+                    if bfexposureratio != 1:
+                        print("correcting bfexposureratio")
+                        tomo = tomo * bfexposureratio
                 elif func_name == 'normalize':
                     tomo = tomo.astype(np.float32,copy=False)
                     tomopy.normalize(tomo, flat, dark, out=tomo)
+                    if bfexposureratio != 1:
+                        tomo = tomo * bfexposureratio
+                        print("correcting bfexposureratio")
                 elif func_name == 'minus_log':
                     mx = np.float32(0.00000000000000000001)
                     ne.evaluate('where(tomo>mx, tomo, mx)', out=tomo)
                     tomopy.minus_log(tomo, out=tomo)
                 elif func_name == 'beam_hardening':
                     loc_dict = {'a{}'.format(i):np.float32(val) for i,val in enumerate(BeamHardeningCoefficients)}
+                    loc_dict['tomo'] = tomo
                     tomo = ne.evaluate('a0 + a1*tomo + a2*tomo**2 + a3*tomo**3 + a4*tomo**4 + a5*tomo**5', local_dict=loc_dict, out=tomo)
                 elif func_name == 'remove_stripe_fw':
                     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
@@ -393,22 +455,25 @@ def recon(
                         tiltcenter_det = tomo.shape[2]/2
                     new_center = tiltcenter_slice - 0.5 - sinoused[0]
                     center_det = tiltcenter_det - 0.5
-                    
-                    #add padding of 10 pixels, to be unpadded right after tilt correction. This makes the tilted image not have zeros at certain edges, which matters in cases where sample is bigger than the field of view. For the small amounts we are generally tilting the images, 10 pixels is sufficient.
-#                    tomo = tomopy.pad(tomo, 2, npad=10, mode='edge')
-#                    center_det = center_det + 10
-                    
+
+                    # add padding of 10 pixels, to be unpadded right after tilt correction.
+                    # This makes the tilted image not have zeros at certain edges,
+                    # which matters in cases where sample is bigger than the field of view.
+                    # For the small amounts we are generally tilting the images, 10 pixels is sufficient.
+                    #  tomo = tomopy.pad(tomo, 2, npad=10, mode='edge')
+                    #  center_det = center_det + 10
+
                     cntr = (center_det, new_center)
                     for b in range(tomo.shape[0]):
-                        tomo[b] = st.rotate(tomo[b], correcttilt, center=cntr, preserve_range=True, order=1, mode='edge', clip=True) #center=None means image is rotated around its center; order=1 is default, order of spline interpolation
-#                    tomo = tomo[:, :, 10:-10]    
-                        
+                        tomo[b] = st.rotate(tomo[b], correcttilt, center=cntr, preserve_range=True, order=1, mode='edge', clip=True) # center=None means image is rotated around its center; order=1 is default, order of spline interpolation
+#					tomo = tomo[:, :, 10:-10]
+
                 elif func_name == 'do_360_to_180':
-                    
+
                     # Keep values around for processing the next chunk in the list
                     keepvalues = [angularrange, numangles, projused, num_proj_per_chunk, numprojchunks, numprojused, numrays, anglelist]
-                    
-                    #why -.5 on one and not on the other?
+
+                    # why -.5 on one and not on the other?
                     if tomo.shape[0]%2>0:
                         tomo = sino_360_to_180(tomo[0:-1,:,:], overlap=int(np.round((tomo.shape[2]-cor-.5))*2), rotation='right')
                         angularrange = angularrange/2 - angularrange/(tomo.shape[0]-1)
@@ -417,13 +482,13 @@ def recon(
                         angularrange = angularrange/2
                     numangles = int(numangles/2)
                     projused = (0,numangles-1,1)
-                    num_proj_per_chunk = np.minimum(chunk_proj,projused[1]-projused[0])
-                    numprojchunks = (projused[1]-projused[0]-1)//num_proj_per_chunk+1
-                    numprojused = (projused[1]-projused[0])//projused[2]
+                    numprojused = len(range(projused[0],projused[1],projused[2]))
+                    num_proj_per_chunk = np.minimum(chunk_proj,numprojused)
+                    numprojchunks = (numprojused-1)//num_proj_per_chunk+1
                     numrays = tomo.shape[2]
-                    
+
                     anglelist = anglelist[:numangles]
-                
+
                 elif func_name == 'phase_retrieval':
                     tomo = tomopy.retrieve_phase(tomo, pixel_size=pxsize, dist=propagation_dist, energy=kev, alpha=alphaReg, pad=True)
                 
@@ -449,14 +514,20 @@ def recon(
                 elif func_name == 'bilateral_filter':
                     rec = pyF3D.run_BilateralFilter(rec, spatialRadius=bilateral_srad, rangeRadius=bilateral_rrad)
                 elif func_name == 'write_output':
-                    dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
+                    if sinoused[2] == 1:
+                        dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
+                    else:
+                        num = y*sinoused[2]*num_sino_per_chunk+sinoused[0]
+                        for sinotowrite in rec:    #fixes issue where dxchange only writes for step sizes of 1
+                            dxchange.writer.write_tiff(sinotowrite, fname=filenametowrite + '_' + '{0:0={1}d}'.format(num, 5))
+                            num += sinoused[2]
                 print('(took {:.2f} seconds)'.format(time.time()-curtime))
                 dofunc+=1
                 if dofunc==len(function_list):
                     break
             if y<niter-1 and keepvalues: # Reset original values for next chunk
                 angularrange, numangles, projused, num_proj_per_chunk, numprojchunks, numprojused, numrays, anglelist = keepvalues
-                
+
         curtemp = 1 - curtemp
         curfunc = dofunc
         if curfunc==len(function_list):
@@ -490,7 +561,7 @@ def convert8bit(rec,data_min,data_max):
     ne.evaluate('where(scl<0,0,scl)',out=scl)
     ne.evaluate('where(scl>255,255,scl)',out=scl)
     return scl.astype(np.uint8)
-    
+
 
 def sino_360_to_180(data, overlap=0, rotation='left'):
     """
@@ -537,9 +608,9 @@ def remove_outlier1d(arr, dif, size=3, axis=0, ncore=None, out=None):
     """
     Remove high intensity bright spots from an array, using a one-dimensional
     median filter along the specified axis.
-    
+
     Dula: also removes dark spots
-    
+
     Parameters
     ----------
     arr : ndarray
@@ -731,6 +802,109 @@ def convertthetype(val):
             return c(val)
         except ValueError:
             pass
+
+###############################################################################################
+# New Readers, so we don't have to read in darks and flats until they're needed
+###############################################################################################
+# Tomo
+###############################################################################################
+
+def read_als_832h5_tomo_only(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
+                   proj=None, sino=None):
+    """
+    Read ALS 8.3.2 hdf5 file with stacked datasets.
+
+    Parameters
+    ----------
+    See docs for read_als_832h5
+    """
+
+    with dxchange.reader.find_dataset_group(fname) as dgroup:
+        dname = dgroup.name.split('/')[-1]
+
+        tomo_name = dname + '_0000_0000.tif'
+
+        # Read metadata from dataset group attributes
+        keys = list(dgroup.attrs.keys())
+        if 'nangles' in keys:
+            nproj = int(dgroup.attrs['nangles'])
+
+        # Create arrays of indices to read projections
+        if ind_tomo is None:
+            ind_tomo = list(range(0, nproj))
+        if proj is not None:
+            ind_tomo = ind_tomo[slice(*proj)]
+
+        tomo = dxchange.reader.read_hdf5_stack(
+            dgroup, tomo_name, ind_tomo, slc=(None, sino))
+
+    return tomo
+
+
+#####################################################################################
+# Non tomo
+#####################################################################################
+
+def read_als_832h5_non_tomo(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
+                   proj=None, sino=None):
+    """
+    Read ALS 8.3.2 hdf5 file with stacked datasets.
+
+    Parameters
+    ----------
+    See docs for read_als_832h5
+    """
+
+    with dxchange.reader.find_dataset_group(fname) as dgroup:
+        dname = dgroup.name.split('/')[-1]
+
+        flat_name = dname + 'bak_0000.tif'
+        dark_name = dname + 'drk_0000.tif'
+
+        # Read metadata from dataset group attributes
+        keys = list(dgroup.attrs.keys())
+        if 'nangles' in keys:
+            nproj = int(dgroup.attrs['nangles'])
+        if 'i0cycle' in keys:
+            inter_bright = int(dgroup.attrs['i0cycle'])
+        if 'num_bright_field' in keys:
+            nflat = int(dgroup.attrs['num_bright_field'])
+        else:
+            nflat = dxchange.reader._count_proj(dgroup, flat_name, nproj,
+                                         inter_bright=inter_bright)
+        if 'num_dark_fields' in keys:
+            ndark = int(dgroup.attrs['num_dark_fields'])
+        else:
+            ndark = dxchange.reader._count_proj(dgroup, dark_name, nproj)
+
+        # Create arrays of indices to read projections, flats and darks
+        if ind_tomo is None:
+            ind_tomo = list(range(0, nproj))
+        if proj is not None:
+            ind_tomo = ind_tomo[slice(*proj)]
+        ind_dark = list(range(0, ndark))
+        group_dark = [nproj - 1]
+        ind_flat = list(range(0, nflat))
+
+        if inter_bright > 0:
+            group_flat = list(range(0, nproj, inter_bright))
+            if group_flat[-1] != nproj - 1:
+                group_flat.append(nproj - 1)
+        elif inter_bright == 0:
+            group_flat = [0, nproj - 1]
+        else:
+            group_flat = None
+
+        flat = dxchange.reader.read_hdf5_stack(
+            dgroup, flat_name, ind_flat, slc=(None, sino), out_ind=group_flat)
+
+        dark = dxchange.reader.read_hdf5_stack(
+            dgroup, dark_name, ind_dark, slc=(None, sino), out_ind=group_dark)
+
+    return flat, dark, dxchange.reader._map_loc(ind_tomo, group_flat)
+
+######################################################################################################
+
 
 #Converts spreadsheet.xlsx file with headers into dictionaries
 def read_spreadsheet(filepath):
