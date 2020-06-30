@@ -414,7 +414,7 @@ def recon_setup(
         "numslices": numslices,
         "numangles": numangles,
         "angularrange": angularrange,
-        "numarys": numrays,
+        "numrays": numrays,
         "npad": npad,
         "projused": projused,
         "inter_bright": inter_bright,
@@ -514,7 +514,7 @@ def recon(
     numslices= 100,
     numangles= 3,
     angularrange= 180,
-    numarys= 2560,
+    numrays= 2560,
     inter_bright= 0,
     nflat= 15,
     ind_flat= 1,
@@ -570,7 +570,7 @@ def recon(
                         if (filetype=='als'):
                             tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1],sinoused[2]))
                         elif (filetype=='sls'):
-                            tomo, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],(timepoint+1)*numangles,1, timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1])), sino=sinoused) #dtype=None, , )
+                            tomo, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
                             break
                     else:
@@ -588,7 +588,7 @@ def recon(
                         if (filetype == 'als'):
                             tomo = read_als_832h5_tomo_only(inputPath+filename,ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]))
                         elif (filetype=='sls'):
-                            tomo, _, _, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],(timepoint+1)*numangles,1, timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1])), sino=sinoused) #dtype=None, , )
+                            tomo, _, _, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
                             break
                     else:
@@ -608,7 +608,7 @@ def recon(
                         if (filetype == 'als'):
                             flat, dark, floc = read_als_832h5_non_tomo(inputPath+filename,ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]))
                         elif (filetype=='sls'):
-                            _, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],(timepoint+1)*numangles,1, timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1])), sino=sinoused) #dtype=None, , )
+                            _, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
                             break
                 else:
@@ -1203,8 +1203,8 @@ def read_sls(fname, exchange_rank=0, proj=None, sino=None, dtype=None):
         theta = np.linspace(0., np.pi, theta_size)
     else:
         theta = theta * np.pi / 180.
-
-    theta = theta[proj[0]:proj[1]:proj[2]]
+    if proj is not None:
+        theta = theta[proj[0]:proj[1]:proj[2]]
 
     return tomo, flat, dark, theta
 
