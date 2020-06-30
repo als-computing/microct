@@ -244,7 +244,7 @@ def recon_setup(
     if projused is None:
         projused = (0, numangles, 1)
     else:
-        # if projused is different than default, need to chnage numangles and angularrange; dula attempting to do this with these two lines, we'll see if it works! 11/16/17
+        # if projused is different than default, need to change numangles and angularrange; dula attempting to do this with these two lines, we'll see if it works! 11/16/17
         angularrange = (angularrange / (numangles - 1)) * (projused[1] - projused[0])
         #dula updated to use anglelist to find angular rage, 11 june 2020, not sure if it will work??
         angularrange = np.abs(anglelist[projused[1]] - anglelist[projused[0]])
@@ -590,6 +590,9 @@ def recon(
                     if axis=='proj':
                         if (filetype=='als'):
                             tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1],sinoused[2]))
+                            if bffilename is not None:
+                                tomobf, _, _, _ = dxchange.read_als_832h5(inputPath+bffilename,sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
+                                flat = tomobf
                         elif (filetype=='sls'):
                             tomo, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
@@ -597,6 +600,9 @@ def recon(
                     else:
                         if (filetype == 'als'):
                             tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath+filename,ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                            if bffilename is not None:
+                                tomobf, _, _, _ = dxchange.read_als_832h5(inputPath + bffilename,sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
+                                flat = tomobf
                         elif (filetype=='sls'):
                             tomo, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+projused[0],timepoint*numangles+projused[1],projused[2]), sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) #dtype=None, , )
                         else:
@@ -628,6 +634,9 @@ def recon(
                         warnings.simplefilter("ignore")
                         if (filetype == 'als'):
                             flat, dark, floc = read_als_832h5_non_tomo(inputPath+filename,ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]))
+                            if bffilename is not None:
+                                tomobf, _, _, _ = dxchange.read_als_832h5(inputPath + bffilename,sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
+                                flat = tomobf
                         elif (filetype=='sls'):
                             _, flat, dark, _ = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
