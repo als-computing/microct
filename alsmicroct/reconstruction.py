@@ -69,7 +69,8 @@ slice_dir = {
     'recon_mask': 'sino',
     'polar_ring': 'sino',
     'castTo8bit': 'both',
-    'write_output': 'both'
+    'write_reconstruction': 'both',
+    'write_normalized': 'proj',
 }
 
 
@@ -154,6 +155,10 @@ def recon_setup(
     projIgnoreList=None,
     # projections to be ignored in the reconstruction (for simplicity in the code, they will not be removed and will be processed as all other projections but will be set to zero absorption right before reconstruction.
     bfexposureratio=1,  # ratio of exposure time of bf to exposure time of sample
+    dorecon=True, #do the tomographic reconstruction
+    writenormalized=False,
+    writereconstruction=True,
+    dominuslog=True,
     *args, **kwargs
     ):
 
@@ -314,7 +319,8 @@ def recon_setup(
         function_list.append('normalize_nf')
     else:
         function_list.append('normalize')
-    function_list.append('minus_log')
+    if dominuslog:
+        function_list.append('minus_log')
     if doBeamHardening:
         function_list.append('beam_hardening')
     if doFWringremoval:
@@ -329,13 +335,16 @@ def recon_setup(
         function_list.append('do_360_to_180')
     if doPhaseRetrieval:
         function_list.append('phase_retrieval')
-    function_list.append('recon_mask')
+    if dorecon:
+        function_list.append('recon_mask')
     if doPolarRing:
         function_list.append('polar_ring')
     if castTo8bit:
         function_list.append('castTo8bit')
-    function_list.append('write_output')
-
+    if writereconstruction:
+        function_list.append('write_reconstruction')
+    if writenormalized:
+        function_list.append('write_normalized')
 
     recon_dict = {
         "inputPath": inputPath, #input file path
@@ -427,6 +436,10 @@ def recon_setup(
         "sinoused": sinoused,
         "BeamHardeningCoefficients": BeamHardeningCoefficients,
         "function_list": function_list,
+        "dorecon": dorecon,
+        "writenormalized": writenormalized,
+        "writereconstruction": writereconstruction,
+        "dominuslog": dominuslog,
     }
 
     return recon_dict
@@ -522,6 +535,10 @@ def recon(
     ind_tomo= [0,1,2],
     floc_independent= 1,
     function_list= ['normalize','minus_log','recon_mask','write_output'],
+    dorecon=True,
+    writenormalized=False,
+    writereconstruction=True,
+    dominuslog=True,
     *args, **kwargs
     ):
 
@@ -555,6 +572,10 @@ def recon(
     done = False
     curfunc = 0
     curtemp = 0
+
+    if not dorecon:
+        rec = 0
+
     while True: # Loop over reading data in certain chunking direction
         if axis=='proj':
             niter = numprojchunks
@@ -742,14 +763,26 @@ def recon(
                     rec = tomopy.remove_ring(rec, theta_min=Rarc, rwidth=Rmaxwidth, thresh_max=Rtmax, thresh=Rthr, thresh_min=Rtmin,out=rec)
                 elif func_name == 'castTo8bit':
                     rec = convert8bit(rec, cast8bit_min, cast8bit_max)
-                elif func_name == 'write_output':
-                    if sinoused[2] == 1:
-                        dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
+                elif func_name == 'write_reconstruction':
+                    if dorecon:
+                        if sinoused[2] == 1:
+                            dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
+                        else:
+                            num = y*sinoused[2]*num_sino_per_chunk+sinoused[0]
+                            for sinotowrite in rec:    #fixes issue where dxchange only writes for step sizes of 1
+                                dxchange.writer.write_tiff(sinotowrite, fname=filenametowrite + '_' + '{0:0={1}d}'.format(num, 5))
+                                num += sinoused[2]
                     else:
-                        num = y*sinoused[2]*num_sino_per_chunk+sinoused[0]
-                        for sinotowrite in rec:    #fixes issue where dxchange only writes for step sizes of 1
-                            dxchange.writer.write_tiff(sinotowrite, fname=filenametowrite + '_' + '{0:0={1}d}'.format(num, 5))
-                            num += sinoused[2]
+                        print('Reconstruction was not done because dorecon was set to False.')
+                elif func_name == 'write_normalized':
+                    if projused[2] == 1:
+                        dxchange.write_tiff_stack(tomo, fname=filenametowrite+'_norm', start=y * num_proj_per_chunk + projused[0])
+                    else:
+                        num = y * projused[2] * num_proj_per_chunk + projused[0]
+                        for projtowrite in tomo:  # fixes issue where dxchange only writes for step sizes of 1
+                            dxchange.writer.write_tiff(projtowrite,fname=filenametowrite + '_' + '{0:0={1}d}_norm'.format(num, 5))
+                            num += projused[2]
+
                 print('(took {:.2f} seconds)'.format(time.time()-curtime))
                 dofunc+=1
                 if dofunc==len(function_list):
@@ -770,7 +803,7 @@ def recon(
             pass
     print("End Time: "+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
     print('It took {:.3f} s to process {}'.format(time.time()-start_time,inputPath+filename))
-    return rec
+    return rec, tomo
 
 def recon_from_spreadsheet(filePath):
     """
