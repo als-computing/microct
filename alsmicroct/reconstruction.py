@@ -159,6 +159,7 @@ def recon_setup(
     writenormalized=False,
     writereconstruction=True,
     dominuslog=True,
+    slsnumangles=1000,
     *args, **kwargs
     ):
 
@@ -432,7 +433,6 @@ def recon_setup(
         "group_flat": group_flat,
         "ind_tomo": ind_tomo,
         "floc_independent": floc_independent,
-        "anglelist": anglelist,
         "sinoused": sinoused,
         "BeamHardeningCoefficients": BeamHardeningCoefficients,
         "function_list": function_list,
@@ -1237,14 +1237,17 @@ def read_sls(fname, exchange_rank=0, proj=None, sino=None, dtype=None):
     theta = dxchange.read_hdf5(fname, theta_grp)
 
     if (theta is None):
+        print('trying to find thetas in theta_aborted')
         theta_grp = '/'.join([exchange_base, 'theta_aborted'])
         theta = dxchange.read_hdf5(fname, theta_grp)
     if (theta is None):
+        print('could not find thetas, generating them based on 180 degree rotation')
         theta_size = dxchange.read_dx_dims(fname, 'data')[0]
         logger.warn('Generating "%s" [0-180] deg angles for missing "exchange/theta" dataset' % (str(theta_size)))
-        theta = np.linspace(0., np.pi, theta_size)
-    else:
-        theta = theta * np.pi / 180.
+        theta = np.linspace(0., 180., theta_size)
+
+    theta = theta * np.pi / 180.
+
     if proj is not None:
         theta = theta[proj[0]:proj[1]:proj[2]]
 
