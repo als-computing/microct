@@ -436,20 +436,6 @@ def recon_setup(
         "Rthr": Rthr,  # max value of offset due to ring artifact (ring removal)
         "Rtmin": Rtmin,  # min value of image to filter (ring removal)
         "cor": cor,  # center of rotation (float). If not used then cor will be detected automatically
-        "corFunction": corFunction,  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
-        "voInd": voInd,  # index of slice to use for cor search (vo)
-        "voSMin": voSMin,  # min radius for searching in sinogram (vo)
-        "voSMax": voSMax,  # max radius for searching in sinogram (vo)
-        "voSRad": voSRad,  # search radius (vo)
-        "voStep": voStep,  # search step (vo)
-        "voRatio": voRatio,  # ratio of field-of-view and object size (vo)
-        "voDrop": voDrop,  # drop lines around vertical center of mask (vo)
-        "nmInd": nmInd,  # index of slice to use for cor search (nm)
-        "nmInit": nmInit,  # initial guess for center (nm)
-        "nmTol": nmTol,  # desired sub-pixel accuracy (nm)
-        "nmMask": nmMask,  # if True, limits analysis to circular region (nm)
-        "nmRatio": nmRatio,  # ratio of radius of circular mask to edge of reconstructed image (nm)
-        "nmSinoOrder": nmSinoOrder,  # if True, analyzes in sinogram space. If False, analyzes in radiograph space
         "use360to180": use360to180,  # use 360 to 180 conversion
         "castTo8bit": castTo8bit,  # convert data to 8bit before writing
         "cast8bit_min": cast8bit_min,  # min value if converting to 8bit
@@ -540,20 +526,6 @@ def recon(
     Rthr=3000.0, # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0, # min value of image to filter (ring removal)
     cor=None, # center of rotation (float). If not used then cor will be detected automatically
-    corFunction = 'pc', # center of rotation function to use - can be 'pc', 'vo', or 'nm'
-    voInd = None, # index of slice to use for cor search (vo)
-    voSMin = -40, # min radius for searching in sinogram (vo)
-    voSMax = 40, # max radius for searching in sinogram (vo)
-    voSRad = 10, # search radius (vo)
-    voStep = 0.5, # search step (vo)
-    voRatio = 2.0, # ratio of field-of-view and object size (vo)
-    voDrop = 20, # drop lines around vertical center of mask (vo)
-    nmInd = None, # index of slice to use for cor search (nm)
-    nmInit = None, # initial guess for center (nm)
-    nmTol = 0.5, # desired sub-pixel accuracy (nm)
-    nmMask = True, # if True, limits analysis to circular region (nm)
-    nmRatio = 1.0, # ratio of radius of circular mask to edge of reconstructed image (nm)
-    nmSinoOrder = False, # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180 = False, # use 360 to 180 conversion
     castTo8bit = False, # convert data to 8bit before writing
     cast8bit_min=-10, # min value if converting to 8bit
