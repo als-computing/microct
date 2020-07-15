@@ -1373,7 +1373,7 @@ def main():
                     break
                 print("Read user input:")
                 print(functioninput)
-                recon_dictionary = recon_setup(**functioninput)
+                recon_dictionary, _ = recon_setup(**functioninput)
 #                recon(**functioninput)
                 recon(**recon_dictionary)
 
