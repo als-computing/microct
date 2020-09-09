@@ -116,13 +116,13 @@ def recon_setup(
     Rthr=3000.0,  # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0,  # min value of image to filter (ring removal)
     cor=None,  # center of rotation (float). If not used then cor will be detected automatically
-    corFunction='pc',  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
+    corFunction='vo',  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
     voInd=None,  # index of slice to use for cor search (vo)
-    voSMin=-40,  # min radius for searching in sinogram (vo)
-    voSMax=40,  # max radius for searching in sinogram (vo)
-    voSRad=10,  # search radius (vo)
-    voStep=0.5,  # search step (vo)
-    voRatio=2.0,  # ratio of field-of-view and object size (vo)
+    voSMin=-150,  # min radius for searching in sinogram (vo)
+    voSMax=150,  # max radius for searching in sinogram (vo)
+    voSRad=6,  # search radius (vo)
+    voStep=0.25,  # search step (vo)
+    voRatio=0.5,  # ratio of field-of-view and object size (vo)
     voDrop=20,  # drop lines around vertical center of mask (vo)
     nmInd=None,  # index of slice to use for cor search (nm)
     nmInit=None,  # initial guess for center (nm)
@@ -160,6 +160,7 @@ def recon_setup(
     writereconstruction=True,
     dominuslog=True,
     slsnumangles=1000,
+    slspxsize=0.00081,
     *args, **kwargs
     ):
 
@@ -185,7 +186,6 @@ def recon_setup(
         pxsize = float(gdata['pxsize']) / 10  # /10 to convert units from mm to cm
         numslices = int(gdata['nslices'])
         numangles = int(gdata['nangles'])
-        print('There are ' + str(numslices) + ' sinograms and ' + str(numangles) + ' projections')
         angularrange = float(gdata['arange'])
         numrays = int(gdata['nrays'])
         inter_bright = int(gdata['i0cycle'])
@@ -219,11 +219,12 @@ def recon_setup(
         else:
             group_flat = None
     elif filetype == 'sls':
-        pxsize = 0.00081
-        numslices = 2016
-        numrays = 2016
-        numangles = 1000
-        print('There are ' + str(numslices) + ' sinograms, ' + str(numrays) + ' rays, and ' + str(numangles) + ' projections')
+        datafile = h5py.File(inputPath + filename, 'r')
+        slsdata = datafile["exchange/data"]
+        numslices = slsdata.shape[1]
+        numrays = slsdata.shape[2]
+        pxsize = slspxsize
+        numangles = slsnumangles
         _, _, _, anglelist = read_sls(inputPath+filename,  exchange_rank=0, proj=(timepoint*numangles,(timepoint+1)*numangles,1), sino=(0,1,1)) #dtype=None, , )
         angularrange = np.abs(anglelist[-1]-anglelist[0])
         inter_bright = 0
@@ -261,6 +262,8 @@ def recon_setup(
     elif sinoused[0] < 0:
         sinoused = (int(np.floor(numslices / 2.0) - np.ceil(sinoused[1] / 2.0)), int(np.floor(numslices / 2.0) + np.floor(sinoused[1] / 2.0)), 1)
 
+    print('There are ' + str(numslices) + ' sinograms, ' + str(numrays) + ' rays, and ' + str(numangles) + ' projections')
+    print('Looking at sinograms ' + str(sinoused[0]) + ' through ' + str(sinoused[1]-1) + ' (inclusive) in steps of ' + str(sinoused[2]))
 
     BeamHardeningCoefficients = (0, 1, 0, 0, 0, .1) if BeamHardeningCoefficients is None else BeamHardeningCoefficients
 
@@ -276,7 +279,8 @@ def recon_setup(
             if (filetype == 'als'):
                 tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath + filename, ind_tomo=(0, lastcor))
             elif (filetype == 'sls'):
-                tomo, flat,dark,coranglelist= read_sls(inputPath+filename, exchange_rank=0, proj=(timepoint * numangles, (timepoint+1) * numangles,numangles - 1))  # dtype=None, , )
+                tomo, flat, dark, coranglelist = read_sls(inputPath + filename, exchange_rank=0, proj=(
+                    timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
             else:
                 return
             if bffilename is not None and (filetype == 'als'):
@@ -293,21 +297,66 @@ def recon_setup(
                 tomo = tomo * bfexposureratio
 
         if corFunction == 'vo':
-            # same reason for catching warnings as above
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                cor = tomopy.find_center_vo(tomo, ind=voInd, smin=voSMin, smax=voSMax, srad=voSRad, step=voStep,
+                if (filetype == 'als'):
+                    tomovo, flat, dark, floc = dxchange.read_als_832h5(inputPath + filename, sino=(sinoused[0],sinoused[0]+1,1))
+                elif (filetype == 'sls'):
+                    tomovo, flat, dark, coranglelist = read_sls(inputPath + filename, exchange_rank=0, sino=(sinoused[0],sinoused[0]+1,1), proj=(timepoint*numangles+projused[0],timepoint*numangles+projused[1],projused[2]))  # dtype=None, , )
+                else:
+                    return
+                if bffilename is not None and (filetype == 'als'):
+                    tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(inputPath + bffilename, sino=(sinoused[0],sinoused[0]+1,1))
+                    flat = tomobf
+            tomovo = tomovo.astype(np.float32)
+            if useNormalize_nf and (filetype == 'als'):
+                tomopy.normalize_nf(tomovo, flat, dark, floc, out=tomovo)
+                if bfexposureratio != 1:
+                    tomovo = tomovo * bfexposureratio
+            else:
+                tomopy.normalize(tomovo, flat, dark, out=tomovo)
+                if bfexposureratio != 1:
+                    tomovo = tomovo * bfexposureratio
+
+            cor = tomopy.find_center_vo(tomovo, ind=voInd, smin=voSMin, smax=voSMax, srad=voSRad, step=voStep,
                                             ratio=voRatio, drop=voDrop)
         elif corFunction == 'nm':
             cor = tomopy.find_center(tomo, tomopy.angles(numangles, angle_offset, angle_offset - angularrange),
                                      ind=nmInd, init=nmInit, tol=nmTol, mask=nmMask, ratio=nmRatio,
                                      sinogram_order=nmSinoOrder)
         elif corFunction == 'pc':
+            if angularrange > 300:
+                lastcor = int(np.floor(numangles / 2) - 1)
+            else:
+                lastcor = numangles - 1
+            # I don't want to see the warnings about the reader using a deprecated variable in dxchange
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                if (filetype == 'als'):
+                    tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath + filename, ind_tomo=(0, lastcor))
+                elif (filetype == 'sls'):
+                    tomo, flat, dark, coranglelist = read_sls(inputPath + filename, exchange_rank=0, proj=(
+                        timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
+                else:
+                    return
+                if bffilename is not None and (filetype == 'als'):
+                    tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(inputPath + bffilename)
+                    flat = tomobf
+            tomo = tomo.astype(np.float32)
+            if useNormalize_nf and (filetype == 'als'):
+                tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
+                if bfexposureratio != 1:
+                    tomo = tomo * bfexposureratio
+            else:
+                tomopy.normalize(tomo, flat, dark, out=tomo)
+                if bfexposureratio != 1:
+                    tomo = tomo * bfexposureratio
             cor = tomopy.find_center_pc(tomo[0], tomo[1], tol=0.25)
         else:
             raise ValueError("\'corFunction\' must be one of: [ pc, vo, nm ].")
         print(", {}".format(cor))
     else:
+        tomo = 0
         print("using user input center of {}".format(cor))
 
     function_list = []
@@ -387,20 +436,6 @@ def recon_setup(
         "Rthr": Rthr,  # max value of offset due to ring artifact (ring removal)
         "Rtmin": Rtmin,  # min value of image to filter (ring removal)
         "cor": cor,  # center of rotation (float). If not used then cor will be detected automatically
-        "corFunction": corFunction,  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
-        "voInd": voInd,  # index of slice to use for cor search (vo)
-        "voSMin": voSMin,  # min radius for searching in sinogram (vo)
-        "voSMax": voSMax,  # max radius for searching in sinogram (vo)
-        "voSRad": voSRad,  # search radius (vo)
-        "voStep": voStep,  # search step (vo)
-        "voRatio": voRatio,  # ratio of field-of-view and object size (vo)
-        "voDrop": voDrop,  # drop lines around vertical center of mask (vo)
-        "nmInd": nmInd,  # index of slice to use for cor search (nm)
-        "nmInit": nmInit,  # initial guess for center (nm)
-        "nmTol": nmTol,  # desired sub-pixel accuracy (nm)
-        "nmMask": nmMask,  # if True, limits analysis to circular region (nm)
-        "nmRatio": nmRatio,  # ratio of radius of circular mask to edge of reconstructed image (nm)
-        "nmSinoOrder": nmSinoOrder,  # if True, analyzes in sinogram space. If False, analyzes in radiograph space
         "use360to180": use360to180,  # use 360 to 180 conversion
         "castTo8bit": castTo8bit,  # convert data to 8bit before writing
         "cast8bit_min": cast8bit_min,  # min value if converting to 8bit
@@ -442,7 +477,8 @@ def recon_setup(
         "dominuslog": dominuslog,
     }
 
-    return recon_dict
+    #return second variable tomo, (first and last normalized image), to use it for manual COR checking
+    return recon_dict, tomo
 
 
 
@@ -490,20 +526,6 @@ def recon(
     Rthr=3000.0, # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0, # min value of image to filter (ring removal)
     cor=None, # center of rotation (float). If not used then cor will be detected automatically
-    corFunction = 'pc', # center of rotation function to use - can be 'pc', 'vo', or 'nm'
-    voInd = None, # index of slice to use for cor search (vo)
-    voSMin = -40, # min radius for searching in sinogram (vo)
-    voSMax = 40, # max radius for searching in sinogram (vo)
-    voSRad = 10, # search radius (vo)
-    voStep = 0.5, # search step (vo)
-    voRatio = 2.0, # ratio of field-of-view and object size (vo)
-    voDrop = 20, # drop lines around vertical center of mask (vo)
-    nmInd = None, # index of slice to use for cor search (nm)
-    nmInit = None, # initial guess for center (nm)
-    nmTol = 0.5, # desired sub-pixel accuracy (nm)
-    nmMask = True, # if True, limits analysis to circular region (nm)
-    nmRatio = 1.0, # ratio of radius of circular mask to edge of reconstructed image (nm)
-    nmSinoOrder = False, # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180 = False, # use 360 to 180 conversion
     castTo8bit = False, # convert data to 8bit before writing
     cast8bit_min=-10, # min value if converting to 8bit
@@ -546,7 +568,7 @@ def recon(
     print("Start {} at:".format(filename)+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
 
     filenametowrite = fulloutputPath+outputFilename
-    print(filenametowrite)
+    print("Time point: {}".format(timepoint))
 
     tempfilenames = [fulloutputPath+'tmp0.h5',fulloutputPath+'tmp1.h5']
     print("cleaning up previous temp files") #, end="")
@@ -568,6 +590,8 @@ def recon(
         if slice_dir[func] != 'both':
             axis = slice_dir[func]
             break
+    else:
+        axis = 'sino'
 
     done = False
     curfunc = 0
@@ -767,6 +791,7 @@ def recon(
                     rec = rec[:, npad:-npad, npad:-npad]
                     rec /= pxsize  # convert reconstructed voxel values from 1/pixel to 1/cm
                     rec = tomopy.circ_mask(rec, 0)
+                    tomo = tomo[:, :, npad:-npad]
                 elif func_name == 'polar_ring':
                     rec = np.ascontiguousarray(rec, dtype=np.float32)
                     rec = tomopy.remove_ring(rec, theta_min=Rarc, rwidth=Rmaxwidth, thresh_max=Rtmax, thresh=Rthr, thresh_min=Rtmin,out=rec)
@@ -1237,7 +1262,6 @@ def read_sls(fname, exchange_rank=0, proj=None, sino=None, dtype=None):
     theta = dxchange.read_hdf5(fname, theta_grp)
 
     if (theta is None):
-        print('trying to find thetas in theta_aborted')
         theta_grp = '/'.join([exchange_base, 'theta_aborted'])
         theta = dxchange.read_hdf5(fname, theta_grp)
     if (theta is None):
@@ -1321,7 +1345,7 @@ def main():
                     break
                 print("Read user input:")
                 print(functioninput)
-                recon_dictionary = recon_setup(**functioninput)
+                recon_dictionary, _ = recon_setup(**functioninput)
 #                recon(**functioninput)
                 recon(**recon_dictionary)
 
