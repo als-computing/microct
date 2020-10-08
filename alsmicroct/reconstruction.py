@@ -117,6 +117,7 @@ def recon_setup(
     Rtmin=-3000.0,  # min value of image to filter (ring removal)
     cor=None,  # center of rotation (float). If not used then cor will be detected automatically
     corFunction='pc',  # center of rotation function to use - can be 'pc', 'vo', or 'nm', or use 'skip' to return tomo variable without having to do a calc.
+    corLoadMinimalBakDrk=True, #during cor detection, only load the first dark field and first flat field rather than all of them, to minimize file loading time for cor detection.
     voInd=None,  # index of slice to use for cor search (vo)
     voSMin=-150,  # min radius for searching in sinogram (vo)
     voSMax=150,  # max radius for searching in sinogram (vo)
@@ -190,8 +191,8 @@ def recon_setup(
         angularrange = float(gdata['arange'])
         numrays = int(gdata['nrays'])
         inter_bright = int(gdata['i0cycle'])
-        #    ndark = int(gdata['num_dark_fields'])
-        #    ind_dark = list(range(0, ndark))
+        ndark = int(gdata['num_dark_fields'])
+        ind_dark = list(range(0, ndark))
         #    group_dark = [numangles - 1]
         nflat = int(gdata['num_bright_field'])
         ind_flat = list(range(0, nflat))
@@ -281,7 +282,10 @@ def recon_setup(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             if (filetype == 'als'):
-                tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath + filename, ind_tomo=(0, lastcor))
+                if corLoadMinimalBakDrk:
+                    ind_dark = 0
+                    ind_flat = 0
+                tomo, flat, dark, floc = dxchange.read_als_832h5(inputPath + filename, ind_tomo=(0, lastcor),ind_dark=ind_dark,ind_flat=ind_flat)
             elif (filetype == 'sls'):
                 tomo, flat, dark, coranglelist = read_sls(inputPath + filename, exchange_rank=0, proj=(
                     timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
@@ -476,6 +480,8 @@ def recon_setup(
         "inter_bright": inter_bright,
         "nflat": nflat,
         "ind_flat": ind_flat,
+        "ndark": nflat,
+        "ind_dark": ind_flat,
         "group_flat": group_flat,
         "ind_tomo": ind_tomo,
         "floc_independent": floc_independent,
@@ -564,8 +570,10 @@ def recon(
     numrays= 2560,
     inter_bright= 0,
     nflat= 15,
-    ind_flat= 1,
+    ind_flat=1,
     group_flat= None,
+    ndrk=10,
+    ind_dark=1,
     ind_tomo= [0,1,2],
     floc_independent= 1,
     function_list= ['normalize','minus_log','recon_mask','write_output'],
