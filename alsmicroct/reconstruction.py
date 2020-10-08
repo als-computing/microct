@@ -879,9 +879,7 @@ def recon(
                     if projIgnoreList is not None:
                         for badproj in projIgnoreList:
                             tomo[badproj] = 0
-                    print('justbefore')
                     rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm=recon_algorithm, filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
-                    print('justafter')
                     rec = rec[:, npad:-npad, npad:-npad]
                     rec /= pxsize  # convert reconstructed voxel values from 1/pixel to 1/cm
                     rec = tomopy.circ_mask(rec, 0)
