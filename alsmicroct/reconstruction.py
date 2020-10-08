@@ -68,6 +68,7 @@ slice_dir = {
     'phase_retrieval': 'proj',
     'recon_mask': 'sino',
     'polar_ring': 'sino',
+    'polar_ring2': 'sino',
     'castTo8bit': 'both',
     'write_reconstruction': 'both',
     'write_normalized': 'proj',
@@ -115,6 +116,12 @@ def recon_setup(
     Rtmax=3000.0,  # max portion of image to filter (ring removal)
     Rthr=3000.0,  # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0,  # min value of image to filter (ring removal)
+    doPolarRing2=False,  # ring removal
+    Rarc2=30,  # min angle needed to be considered ring artifact (ring removal)
+    Rmaxwidth2=100,  # max width of rings to be filtered (ring removal)
+    Rtmax2=3000.0,  # max portion of image to filter (ring removal)
+    Rthr2=3000.0,  # max value of offset due to ring artifact (ring removal)
+    Rtmin2=-3000.0,  # min value of image to filter (ring removal)
     cor=None,  # center of rotation (float). If not used then cor will be detected automatically
     corFunction='pc',  # center of rotation function to use - can be 'pc', 'vo', or 'nm', or use 'skip' to return tomo variable without having to do a calc.
     corLoadMinimalBakDrk=True, #during cor detection, only load the first dark field and first flat field rather than all of them, to minimize file loading time for cor detection.
@@ -192,10 +199,22 @@ def recon_setup(
         angularrange = float(gdata['arange'])
         numrays = int(gdata['nrays'])
         inter_bright = int(gdata['i0cycle'])
-        ndark = int(gdata['num_dark_fields'])
+
+
+
+        dgroup = dxchange.reader._find_dataset_group(datafile)
+        keys = list(gdata.keys())
+        if 'num_dark_fields' in keys:
+            ndark = int(gdata['num_dark_fields'])
+        else:
+            ndark = dxchange.reader._count_proj(dgroup, dgroup.name.split('/')[-1] + 'drk_0000.tif', numangles, inter_bright=-1) #for darks, don't want to divide out inter_bright for counting projections
         ind_dark = list(range(0, ndark))
-        #    group_dark = [numangles - 1]
-        nflat = int(gdata['num_bright_field'])
+        group_dark = [numangles - 1]
+
+        if 'num_bright_field' in keys:
+            nflat = int(gdata['num_bright_field'])
+        else:
+            nflat = dxchange.reader._count_proj(dgroup, dgroup.name.split('/')[-1] + 'bak_0000.tif', numangles, inter_bright=inter_bright)
         ind_flat = list(range(0, nflat))
 
         # figure out the angle list (a list of angles, one per projection image)
@@ -406,6 +425,8 @@ def recon_setup(
         function_list.append('recon_mask')
     if doPolarRing:
         function_list.append('polar_ring')
+    if doPolarRing2:
+        function_list.append('polar_ring2')
     if castTo8bit:
         function_list.append('castTo8bit')
     if writereconstruction:
@@ -451,7 +472,27 @@ def recon_setup(
         "Rtmax": Rtmax,  # max portion of image to filter (ring removal)
         "Rthr": Rthr,  # max value of offset due to ring artifact (ring removal)
         "Rtmin": Rtmin,  # min value of image to filter (ring removal)
+        "doPolarRing2": doPolarRing2,  # ring removal
+        "Rarc2": Rarc2,  # min angle needed to be considered ring artifact (ring removal)
+        "Rmaxwidth2": Rmaxwidth2,  # max width of rings to be filtered (ring removal)
+        "Rtmax2": Rtmax2,  # max portion of image to filter (ring removal)
+        "Rthr2": Rthr2,  # max value of offset due to ring artifact (ring removal)
+        "Rtmin2": Rtmin2,  # min value of image to filter (ring removal)
         "cor": cor,  # center of rotation (float). If not used then cor will be detected automatically
+        "corFunction": corFunction,  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
+        "voInd": voInd,  # index of slice to use for cor search (vo)
+        "voSMin": voSMin,  # min radius for searching in sinogram (vo)
+        "voSMax": voSMax,  # max radius for searching in sinogram (vo)
+        "voSRad": voSRad,  # search radius (vo)
+        "voStep": voStep,  # search step (vo)
+        "voRatio": voRatio,  # ratio of field-of-view and object size (vo)
+        "voDrop": voDrop,  # drop lines around vertical center of mask (vo)
+        "nmInd": nmInd,  # index of slice to use for cor search (nm)
+        "nmInit": nmInit,  # initial guess for center (nm)
+        "nmTol": nmTol,  # desired sub-pixel accuracy (nm)
+        "nmMask": nmMask,  # if True, limits analysis to circular region (nm)
+        "nmRatio": nmRatio,  # ratio of radius of circular mask to edge of reconstructed image (nm)
+        "nmSinoOrder": nmSinoOrder,  # if True, analyzes in sinogram space. If False, analyzes in radiograph space
         "use360to180": use360to180,  # use 360 to 180 conversion
         "castTo8bit": castTo8bit,  # convert data to 8bit before writing
         "cast8bit_min": cast8bit_min,  # min value if converting to 8bit
@@ -544,7 +585,27 @@ def recon(
     Rtmax=3000.0, # max portion of image to filter (ring removal)
     Rthr=3000.0, # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0, # min value of image to filter (ring removal)
+    doPolarRing2 = False, # ring removal
+    Rarc2=30, # min angle needed to be considered ring artifact (ring removal)
+    Rmaxwidth2=100, # max width of rings to be filtered (ring removal)
+    Rtmax2=3000.0, # max portion of image to filter (ring removal)
+    Rthr2=3000.0, # max value of offset due to ring artifact (ring removal)
+    Rtmin2=-3000.0, # min value of image to filter (ring removal)
     cor=None, # center of rotation (float). If not used then cor will be detected automatically
+    corFunction = 'pc', # center of rotation function to use - can be 'pc', 'vo', or 'nm'
+    voInd = None, # index of slice to use for cor search (vo)
+    voSMin = -40, # min radius for searching in sinogram (vo)
+    voSMax = 40, # max radius for searching in sinogram (vo)
+    voSRad = 10, # search radius (vo)
+    voStep = 0.5, # search step (vo)
+    voRatio = 2.0, # ratio of field-of-view and object size (vo)
+    voDrop = 20, # drop lines around vertical center of mask (vo)
+    nmInd = None, # index of slice to use for cor search (nm)
+    nmInit = None, # initial guess for center (nm)
+    nmTol = 0.5, # desired sub-pixel accuracy (nm)
+    nmMask = True, # if True, limits analysis to circular region (nm)
+    nmRatio = 1.0, # ratio of radius of circular mask to edge of reconstructed image (nm)
+    nmSinoOrder = False, # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180 = False, # use 360 to 180 conversion
     castTo8bit = False, # convert data to 8bit before writing
     cast8bit_min=-10, # min value if converting to 8bit
@@ -583,6 +644,7 @@ def recon(
     writereconstruction=True,
     dominuslog=True,
     verbose_printing=False,
+    recon_algorithm='gridrec' #choose from gridrec, fbp, and others in tomopy
     *args, **kwargs
     ):
 
@@ -816,9 +878,7 @@ def recon(
                         for badproj in projIgnoreList:
                             tomo[badproj] = 0
 
-#                    rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm='gridrec', filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
-                    rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm='fbp', filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
-
+                    rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm=recon_algorithm, filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
                     rec = rec[:, npad:-npad, npad:-npad]
                     rec /= pxsize  # convert reconstructed voxel values from 1/pixel to 1/cm
                     rec = tomopy.circ_mask(rec, 0)
@@ -826,6 +886,9 @@ def recon(
                 elif func_name == 'polar_ring':
                     rec = np.ascontiguousarray(rec, dtype=np.float32)
                     rec = tomopy.remove_ring(rec, theta_min=Rarc, rwidth=Rmaxwidth, thresh_max=Rtmax, thresh=Rthr, thresh_min=Rtmin,out=rec)
+                elif func_name == 'polar_ring2':
+                    rec = np.ascontiguousarray(rec, dtype=np.float32)
+                    rec = tomopy.remove_ring(rec, theta_min=Rarc2, rwidth=Rmaxwidth2, thresh_max=Rtmax2, thresh=Rthr2, thresh_min=Rtmin2,out=rec)
                 elif func_name == 'castTo8bit':
                     rec = convert8bit(rec, cast8bit_min, cast8bit_max)
                 elif func_name == 'write_reconstruction':
