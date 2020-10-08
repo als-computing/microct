@@ -264,7 +264,7 @@ def recon_setup(
         sinoused = (int(np.floor(numslices / 2.0) - np.ceil(sinoused[1] / 2.0)), int(np.floor(numslices / 2.0) + np.floor(sinoused[1] / 2.0)), 1)
 
     if verbose_printing:
-        print('There are ' + str(numslices) + ' sinograms, ' + str(numrays) + ' rays, and ' + str(numangles) + ' projections')
+        print('There are ' + str(numslices) + ' sinograms, ' + str(numrays) + ' rays, and ' + str(numangles) + ' projections, with an angular range of ' +str(angularrange) + '.')
         print('Looking at sinograms ' + str(sinoused[0]) + ' through ' + str(sinoused[1]-1) + ' (inclusive) in steps of ' + str(sinoused[2]))
 
     BeamHardeningCoefficients = (0, 1, 0, 0, 0, .1) if BeamHardeningCoefficients is None else BeamHardeningCoefficients
