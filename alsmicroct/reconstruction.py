@@ -170,7 +170,6 @@ def recon_setup(
     outputPath = inputPath + 'rec' + os.path.splitext(filename)[0] + '/' if outputPath is None else outputPath + 'rec' + os.path.splitext(filename)[0] + '/'
     fulloutputPath = outputPath if fulloutputPath is None else fulloutputPath
     tempfilenames = [fulloutputPath + 'tmp0.h5', fulloutputPath + 'tmp1.h5']
-    filenametowrite = fulloutputPath + outputFilename
 
     if verbose_printing:
         print("cleaning up previous temp files", end="")
@@ -415,7 +414,6 @@ def recon_setup(
         "fulloutputPath": fulloutputPath,
         "outputFilename": outputFilename,
         "bffilename": bffilename, #if there is a separate file with the bright fields
-        "filenametowrite": filenametowrite, #output path plus name to pass to dxchange to write files into a folder
         "doOutliers1D": doOutliers1D,  # outlier removal in 1d (along sinogram columns)
         "outlier_diff1D": outlier_diff1D,  # difference between good data and outlier data (outlier removal)
         "outlier_size1D": outlier_size1D,  # radius around each pixel to look for outliers (outlier removal)
