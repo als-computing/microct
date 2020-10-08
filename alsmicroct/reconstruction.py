@@ -116,7 +116,7 @@ def recon_setup(
     Rthr=3000.0,  # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0,  # min value of image to filter (ring removal)
     cor=None,  # center of rotation (float). If not used then cor will be detected automatically
-    corFunction='vo',  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
+    corFunction='pc',  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
     voInd=None,  # index of slice to use for cor search (vo)
     voSMin=-150,  # min radius for searching in sinogram (vo)
     voSMax=150,  # max radius for searching in sinogram (vo)
@@ -161,6 +161,7 @@ def recon_setup(
     dominuslog=True,
     slsnumangles=1000,
     slspxsize=0.00081,
+    verbose_printing=False,
     *args, **kwargs
     ):
 
@@ -171,14 +172,15 @@ def recon_setup(
     tempfilenames = [fulloutputPath + 'tmp0.h5', fulloutputPath + 'tmp1.h5']
     filenametowrite = fulloutputPath + outputFilename
 
-    print("cleaning up previous temp files", end="")
+    if verbose_printing:
+        print("cleaning up previous temp files", end="")
     for tmpfile in tempfilenames:
         try:
             os.remove(tmpfile)
         except OSError:
             pass
-
-    print(", reading metadata")
+    if verbose_printing:
+        print(", reading metadata")
 
     if filetype == 'als':
         datafile = h5py.File(inputPath + filename, 'r')
@@ -262,13 +264,16 @@ def recon_setup(
     elif sinoused[0] < 0:
         sinoused = (int(np.floor(numslices / 2.0) - np.ceil(sinoused[1] / 2.0)), int(np.floor(numslices / 2.0) + np.floor(sinoused[1] / 2.0)), 1)
 
-    print('There are ' + str(numslices) + ' sinograms, ' + str(numrays) + ' rays, and ' + str(numangles) + ' projections')
-    print('Looking at sinograms ' + str(sinoused[0]) + ' through ' + str(sinoused[1]-1) + ' (inclusive) in steps of ' + str(sinoused[2]))
+    if verbose_printing:
+        print('There are ' + str(numslices) + ' sinograms, ' + str(numrays) + ' rays, and ' + str(numangles) + ' projections')
+        print('Looking at sinograms ' + str(sinoused[0]) + ' through ' + str(sinoused[1]-1) + ' (inclusive) in steps of ' + str(sinoused[2]))
 
     BeamHardeningCoefficients = (0, 1, 0, 0, 0, .1) if BeamHardeningCoefficients is None else BeamHardeningCoefficients
 
     if cor is None:
-        print("Detecting center of rotation", end="")
+        if verbose_printing:
+            print("Detecting center of rotation", end="")
+
         if angularrange > 300:
             lastcor = int(np.floor(numangles / 2) - 1)
         else:
@@ -297,6 +302,7 @@ def recon_setup(
                 tomo = tomo * bfexposureratio
 
         if corFunction == 'vo':
+
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 if (filetype == 'als'):
@@ -309,6 +315,7 @@ def recon_setup(
                     tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(inputPath + bffilename, sino=(sinoused[0],sinoused[0]+1,1))
                     flat = tomobf
             tomovo = tomovo.astype(np.float32)
+
             if useNormalize_nf and (filetype == 'als'):
                 tomopy.normalize_nf(tomovo, flat, dark, floc, out=tomovo)
                 if bfexposureratio != 1:
@@ -320,6 +327,8 @@ def recon_setup(
 
             cor = tomopy.find_center_vo(tomovo, ind=voInd, smin=voSMin, smax=voSMax, srad=voSRad, step=voStep,
                                             ratio=voRatio, drop=voDrop)
+
+
         elif corFunction == 'nm':
             cor = tomopy.find_center(tomo, tomopy.angles(numangles, angle_offset, angle_offset - angularrange),
                                      ind=nmInd, init=nmInit, tol=nmTol, mask=nmMask, ratio=nmRatio,
@@ -354,10 +363,12 @@ def recon_setup(
             cor = tomopy.find_center_pc(tomo[0], tomo[1], tol=0.25)
         else:
             raise ValueError("\'corFunction\' must be one of: [ pc, vo, nm ].")
-        print(", {}".format(cor))
+        if verbose_printing:
+            print(", {}".format(cor))
     else:
         tomo = 0
-        print("using user input center of {}".format(cor))
+        if verbose_printing:
+            print("using user input center of {}".format(cor))
 
     function_list = []
 
@@ -475,6 +486,7 @@ def recon_setup(
         "writenormalized": writenormalized,
         "writereconstruction": writereconstruction,
         "dominuslog": dominuslog,
+        "verbose_printing": verbose_printing,
     }
 
     #return second variable tomo, (first and last normalized image), to use it for manual COR checking
@@ -561,17 +573,21 @@ def recon(
     writenormalized=False,
     writereconstruction=True,
     dominuslog=True,
+    verbose_printing=False,
     *args, **kwargs
     ):
 
     start_time = time.time()
-    print("Start {} at:".format(filename)+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
+    if verbose_printing:
+        print("Start {} at:".format(filename)+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
 
     filenametowrite = fulloutputPath+outputFilename
-    print("Time point: {}".format(timepoint))
+    if verbose_printing:
+        print("Time point: {}".format(timepoint))
 
     tempfilenames = [fulloutputPath+'tmp0.h5',fulloutputPath+'tmp1.h5']
-    print("cleaning up previous temp files") #, end="")
+    if verbose_printing:
+        print("cleaning up previous temp files") #, end="")
     for tmpfile in tempfilenames:
         try:
             os.remove(tmpfile)
@@ -606,7 +622,8 @@ def recon(
         else:
             niter = numsinochunks
         for y in range(niter): # Loop over chunks
-            print("{} chunk {} of {}".format(axis, y+1, niter))
+            if verbose_printing:
+                print("{} chunk {} of {}".format(axis, y+1, niter))
             # The standard case. Unless the combinations below are in our function list, we read darks and flats normally, and on next chunck proceed to "else."
             if curfunc == 0 and not (('normalize_nf' in function_list and 'remove_outlier2d' in function_list) or ('remove_outlier1d' in function_list and 'remove_outlier2d' in function_list)):
                 with warnings.catch_warnings():
@@ -699,7 +716,8 @@ def recon(
                     appendaxis = 1 if axis=='sino' else 0
                     dxchange.writer.write_hdf5(tomo,fname=tempfilenames[1-curtemp],gname='tmp',dname='tmp',overwrite=False,appendaxis=appendaxis) #writing intermediate file...
                     break
-                print(func_name, end=" ")
+                if verbose_printing:
+                    print(func_name, end=" ")
                 curtime = time.time()
                 if func_name == 'remove_outlier1d':
                     tomo = tomo.astype(np.float32,copy=False)
@@ -711,14 +729,16 @@ def recon(
                     tomo = tomo.astype(np.float32,copy=False)
                     tomopy.normalize_nf(tomo, flat, dark, floc_independent, out=tomo) #use floc_independent b/c when you read file in proj chunks, you don't get the correct floc returned right now to use here.
                     if bfexposureratio != 1:
-                        print("correcting bfexposureratio")
+                        if verbose_printing:
+                            print("correcting bfexposureratio")
                         tomo = tomo * bfexposureratio
                 elif func_name == 'normalize':
                     tomo = tomo.astype(np.float32,copy=False)
                     tomopy.normalize(tomo, flat, dark, out=tomo)
                     if bfexposureratio != 1:
                         tomo = tomo * bfexposureratio
-                        print("correcting bfexposureratio")
+                        if verbose_printing:
+                            print("correcting bfexposureratio")
                 elif func_name == 'minus_log':
                     mx = np.float32(0.01) #setting min %transmission to 1% helps avoid streaking from very high absorbing areas
                     ne.evaluate('where(tomo>mx, tomo, mx)', out=tomo)
@@ -787,7 +807,9 @@ def recon(
                         for badproj in projIgnoreList:
                             tomo[badproj] = 0
 
-                    rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm='gridrec', filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
+#                    rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm='gridrec', filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
+                    rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm='fbp', filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
+
                     rec = rec[:, npad:-npad, npad:-npad]
                     rec /= pxsize  # convert reconstructed voxel values from 1/pixel to 1/cm
                     rec = tomopy.circ_mask(rec, 0)
@@ -807,7 +829,8 @@ def recon(
                                 dxchange.writer.write_tiff(sinotowrite, fname=filenametowrite + '_' + '{0:0={1}d}'.format(num, 5))
                                 num += sinoused[2]
                     else:
-                        print('Reconstruction was not done because dorecon was set to False.')
+                        if verbose_printing:
+                            print('Reconstruction was not done because dorecon was set to False.')
                 elif func_name == 'write_normalized':
                     if projused[2] == 1:
                         dxchange.write_tiff_stack(tomo, fname=filenametowrite+'_norm', start=y * num_proj_per_chunk + projused[0])
@@ -816,8 +839,8 @@ def recon(
                         for projtowrite in tomo:  # fixes issue where dxchange only writes for step sizes of 1
                             dxchange.writer.write_tiff(projtowrite,fname=filenametowrite + '_' + '{0:0={1}d}_norm'.format(num, 5))
                             num += projused[2]
-
-                print('(took {:.2f} seconds)'.format(time.time()-curtime))
+                if verbose_printing:
+                    print('(took {:.2f} seconds)'.format(time.time()-curtime))
                 dofunc+=1
                 if dofunc==len(function_list):
                     break
@@ -829,14 +852,16 @@ def recon(
         if curfunc==len(function_list):
             break
         axis = slice_dir[function_list[curfunc]]
-    print("cleaning up temp files")
+    if verbose_printing:
+        print("cleaning up temp files")
     for tmpfile in tempfilenames:
         try:
             os.remove(tmpfile)
         except OSError:
             pass
-    print("End Time: "+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
-    print('It took {:.3f} s to process {}'.format(time.time()-start_time,inputPath+filename))
+    if verbose_printing:
+        print("End Time: "+time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.localtime()))
+        print('It took {:.3f} s to process {}'.format(time.time()-start_time,inputPath+filename))
     return rec, tomo
 
 def recon_from_spreadsheet(filePath):
@@ -1265,7 +1290,8 @@ def read_sls(fname, exchange_rank=0, proj=None, sino=None, dtype=None):
         theta_grp = '/'.join([exchange_base, 'theta_aborted'])
         theta = dxchange.read_hdf5(fname, theta_grp)
     if (theta is None):
-        print('could not find thetas, generating them based on 180 degree rotation')
+        if verbose_printing:
+            print('could not find thetas, generating them based on 180 degree rotation')
         theta_size = dxchange.read_dx_dims(fname, 'data')[0]
         logger.warn('Generating "%s" [0-180] deg angles for missing "exchange/theta" dataset' % (str(theta_size)))
         theta = np.linspace(0., 180., theta_size)
