@@ -170,6 +170,7 @@ def recon_setup(
     slsnumangles=1000,
     slspxsize=0.00081,
     verbose_printing=False,
+    recon_algorithm='gridrec',  # choose from gridrec, fbp, and others in tomopy
     *args, **kwargs
     ):
 
@@ -535,6 +536,7 @@ def recon_setup(
         "writereconstruction": writereconstruction,
         "dominuslog": dominuslog,
         "verbose_printing": verbose_printing,
+        "recon_algorithm": recon_algorithm,
     }
 
     #return second variable tomo, (first and last normalized image), to use it for manual COR checking
@@ -644,7 +646,7 @@ def recon(
     writereconstruction=True,
     dominuslog=True,
     verbose_printing=False,
-    recon_algorithm='gridrec' #choose from gridrec, fbp, and others in tomopy
+    recon_algorithm='gridrec', #choose from gridrec, fbp, and others in tomopy
     *args, **kwargs
     ):
 
@@ -877,8 +879,9 @@ def recon(
                     if projIgnoreList is not None:
                         for badproj in projIgnoreList:
                             tomo[badproj] = 0
-
+                    print('justbefore')
                     rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm=recon_algorithm, filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
+                    print('justafter')
                     rec = rec[:, npad:-npad, npad:-npad]
                     rec /= pxsize  # convert reconstructed voxel values from 1/pixel to 1/cm
                     rec = tomopy.circ_mask(rec, 0)

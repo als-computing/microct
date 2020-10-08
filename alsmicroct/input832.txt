@@ -1,1 +1,1 @@
-20200521_160002_heartbeat_test.h5 verbose_printing 1 inputPath /Users/dyparkinson/Desktop outputPath /Users/dyparkinson/microct/alsmicroct/testing
+20200521_160002_heartbeat_test.h5 verbose_printing 1 recon_algorithm fbp
