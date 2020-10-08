@@ -116,7 +116,7 @@ def recon_setup(
     Rthr=3000.0,  # max value of offset due to ring artifact (ring removal)
     Rtmin=-3000.0,  # min value of image to filter (ring removal)
     cor=None,  # center of rotation (float). If not used then cor will be detected automatically
-    corFunction='pc',  # center of rotation function to use - can be 'pc', 'vo', or 'nm'
+    corFunction='pc',  # center of rotation function to use - can be 'pc', 'vo', or 'nm', or use 'skip' to return tomo variable without having to do a calc.
     voInd=None,  # index of slice to use for cor search (vo)
     voSMin=-150,  # min radius for searching in sinogram (vo)
     voSMax=150,  # max radius for searching in sinogram (vo)
@@ -360,6 +360,8 @@ def recon_setup(
                 if bfexposureratio != 1:
                     tomo = tomo * bfexposureratio
             cor = tomopy.find_center_pc(tomo[0], tomo[1], tol=0.25)
+        elif corFunction == 'skip': #use this to get back the tomo variable without running processing
+            cor = numrays/2
         else:
             raise ValueError("\'corFunction\' must be one of: [ pc, vo, nm ].")
         if verbose_printing:
