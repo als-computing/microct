@@ -65,6 +65,7 @@ slice_dir = {
     'remove_stripe_sf': 'sino',
     'do_360_to_180': 'sino',
     'correcttilt': 'proj',
+    'lensdistortion': 'proj',
     'phase_retrieval': 'proj',
     'recon_mask': 'sino',
     'polar_ring': 'sino',
@@ -171,6 +172,9 @@ def recon_setup(
     slspxsize=0.00081,
     verbose_printing=False,
     recon_algorithm='gridrec',  # choose from gridrec, fbp, and others in tomopy
+    dolensdistortion=False,
+    lensdistortioncenter=(1280,1080),
+    lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
     *args, **kwargs
     ):
 
@@ -418,6 +422,8 @@ def recon_setup(
         function_list.append('remove_stripe_sf')
     if correcttilt:
         function_list.append('correcttilt')
+    if dolensdistortion:
+        function_list.append('lensdistortion')
     if use360to180:
         function_list.append('do_360_to_180')
     if doPhaseRetrieval:
@@ -537,6 +543,9 @@ def recon_setup(
         "dominuslog": dominuslog,
         "verbose_printing": verbose_printing,
         "recon_algorithm": recon_algorithm,
+        "dolensdistortion": dolensdistortion,
+        "lensdistortioncenter": lensdistortioncenter,
+        "lensdistortionfactors": lensdistortionfactors,
     }
 
     #return second variable tomo, (first and last normalized image), to use it for manual COR checking
@@ -647,6 +656,9 @@ def recon(
     dominuslog=True,
     verbose_printing=False,
     recon_algorithm='gridrec', #choose from gridrec, fbp, and others in tomopy
+    dolensdistortion=False,
+    lensdistortioncenter = (1280,1080),
+    lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
     *args, **kwargs
     ):
 
@@ -845,7 +857,17 @@ def recon(
                     for b in range(tomo.shape[0]):
                         tomo[b] = st.rotate(tomo[b], correcttilt, center=cntr, preserve_range=True, order=1, mode='edge', clip=True) # center=None means image is rotated around its center; order=1 is default, order of spline interpolation
 #					tomo = tomo[:, :, 10:-10]
-
+                elif func_name == 'lensdistortion':
+                    print(lensdistortioncenter[0])
+                    print(lensdistortioncenter[1])
+                    print(lensdistortionfactors[0])
+                    print(lensdistortionfactors[1])
+                    print(lensdistortionfactors[2])
+                    print(lensdistortionfactors[3])
+                    print(lensdistortionfactors[4])
+                    print(type(lensdistortionfactors[0]))
+                    print(type(lensdistortionfactors))
+                    tomo = tomopy.prep.alignment.distortion_correction_proj(tomo, lensdistortioncenter[0], lensdistortioncenter[1], lensdistortionfactors, ncore=None,nchunk=None)
                 elif func_name == 'do_360_to_180':
 
                     # Keep values around for processing the next chunk in the list

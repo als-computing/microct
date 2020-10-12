@@ -1,1 +1,1 @@
-20200521_160002_heartbeat_test.h5 recon_algorithm fbp
+20200521_160002_heartbeat_test.h5 recon_algorithm fbp verbose_printing 1 dolensdistortion 1 doFWstriperemoval 0 lensdistortioncenter 1279,1081 lensdistortionfactors 1.0,1e-8,0,0,0
