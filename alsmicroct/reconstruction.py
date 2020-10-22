@@ -226,8 +226,6 @@ def recon_setup(
         dtemp = datafile[list(datafile.keys())[0]]
         fltemp = list(dtemp.keys())
         firstangle = float(dtemp[fltemp[0]].attrs.get('rot_angle', 0))
-        anglegap = angularrange / (numangles - 1)
-       # firstangle += anglegap * projused[0]  # accounting for projused argument
         if anglelist is None:
             # the offset angle should offset from the angle of the first image, which is usually 0, but in the case of timbir data may not be.
             # we add the 270 to be inte same orientation as previous software used at bl832
