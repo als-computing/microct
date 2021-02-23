@@ -175,6 +175,7 @@ def recon_setup(
     dolensdistortion=False,
     lensdistortioncenter=(1280,1080),
     lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
+    minimum_transmission = 0.01,
     *args, **kwargs
     ):
 
@@ -226,8 +227,6 @@ def recon_setup(
         dtemp = datafile[list(datafile.keys())[0]]
         fltemp = list(dtemp.keys())
         firstangle = float(dtemp[fltemp[0]].attrs.get('rot_angle', 0))
-        anglegap = angularrange / (numangles - 1)
-       # firstangle += anglegap * projused[0]  # accounting for projused argument
         if anglelist is None:
             # the offset angle should offset from the angle of the first image, which is usually 0, but in the case of timbir data may not be.
             # we add the 270 to be inte same orientation as previous software used at bl832
@@ -245,6 +244,19 @@ def recon_setup(
             group_flat = [0, numangles - 1]
         else:
             group_flat = None
+    elif filetype == 'dxfile':
+        _, _, _, anglelist, meta = dxchange.exchange.read_dx(os.path.join(inputPath, filename))
+        numslices = int(meta['dimension_y'][0])
+        numrays = int(meta['dimension_x'][0])
+        pxsize = meta['pixel_size'][0]
+        numangles = int(meta['num_angles'][0])
+        angularrange = meta['range'][0]
+        inter_bright = int(meta['i0cycle'][0])
+        group_flat = [0, numangles - 1]
+        nflat =  int(meta['num_flat_fields'][0])
+        ind_flat = list(range(0, nflat))
+        ndark = int(meta['num_dark_fields'][0])
+        ind_dark = list(range(0, ndark))
     elif filetype == 'sls':
         datafile = h5py.File(os.path.join(inputPath, filename), 'r')
         slsdata = datafile["exchange/data"]
@@ -311,6 +323,12 @@ def recon_setup(
                     ind_dark = 0
                     ind_flat = 0
                 tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor),ind_dark=ind_dark,ind_flat=ind_flat)
+            elif filetype == 'dxfile':
+                # if corLoadMinimalBakDrk:
+                #     ind_dark = 0
+                #     ind_flat = 0
+                # tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,numangles-1),ind_dark=ind_dark,ind_flat=ind_flat)
+                tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,lastcor))
             elif (filetype == 'sls'):
                 tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath,filename), exchange_rank=0, proj=(
                     timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
@@ -371,6 +389,9 @@ def recon_setup(
                 warnings.simplefilter("ignore")
                 if (filetype == 'als'):
                     tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
+                elif (filetype == 'dxfile'):
+                    tomo, flat, dark, coranglelist,_ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                        0, lastcor))  # dtype=None, , )
                 elif (filetype == 'sls'):
                     tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                         timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
@@ -546,6 +567,7 @@ def recon_setup(
         "dolensdistortion": dolensdistortion,
         "lensdistortioncenter": lensdistortioncenter,
         "lensdistortionfactors": lensdistortionfactors,
+        "minimum_transmission": minimum_transmission,
     }
 
     #return second variable tomo, (first and last normalized image), to use it for manual COR checking
@@ -659,6 +681,7 @@ def recon(
     dolensdistortion=False,
     lensdistortioncenter = (1280,1080),
     lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
+    minimum_transmission = 0.01,
     *args, **kwargs
     ):
 
@@ -719,6 +742,11 @@ def recon(
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
                                 flat = tomobf
+                        elif (filetype == 'dxfile'):
+                            tomo, flat, dark, _, _= dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0,
+                                                               proj=( y * projused[2] * num_proj_per_chunk + projused[0],
+                                                                     + np.minimum((y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]), projused[2]),
+                                                               sino=sinoused)  # dtype=None, , )
                         elif (filetype=='sls'):
                             tomo, flat, dark, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
@@ -729,6 +757,15 @@ def recon(
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath, bffilename),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
                                 flat = tomobf
+                        elif (filetype == 'dxfile'):
+                                tomo, flat, dark, _, _ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0,
+                                                               proj=( projused[0],
+                                                                      projused[1], projused[2]),
+                                                               sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
+                                                                     np.minimum(
+                                                                         (y + 1) * sinoused[2] * num_sino_per_chunk +
+                                                                         sinoused[0], sinoused[1]),
+                                                                     sinoused[2]))  # dtype=None, , )
                         elif (filetype=='sls'):
                             tomo, flat, dark, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+projused[0],timepoint*numangles+projused[1],projused[2]), sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) #dtype=None, , )
                         else:
@@ -740,6 +777,12 @@ def recon(
                     if axis=='proj':
                         if (filetype == 'als'):
                             tomo = read_als_832h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]))
+                        elif (filetype == 'dxfile'):
+                            tomo, _, _, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                            y * projused[2] * num_proj_per_chunk + projused[0],
+                            np.minimum((y + 1) * projused[2] * num_proj_per_chunk + projused[0],
+                                                               projused[1]), projused[2]),
+                                                     sino=sinoused)  # dtype=None, , )
                         elif (filetype=='sls'):
                             tomo, _, _, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
@@ -747,6 +790,13 @@ def recon(
                     else:
                         if (filetype == 'als'):
                             tomo = read_als_832h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                        elif (filetype == 'dxfile'):
+                            tomo, _, _, _, _ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                             projused[0], projused[1], projused[2]),
+                                                     sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
+                                                           np.minimum(
+                                                               (y + 1) * sinoused[2] * num_sino_per_chunk + sinoused[0],
+                                                               sinoused[1]), sinoused[2]))  # dtype=None, , )
                         elif (filetype=='sls'):
                             tomo, _, _, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+projused[0],timepoint*numangles+projused[1],projused[2]), sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) #dtype=None, , )
                         else:
@@ -763,6 +813,12 @@ def recon(
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
                                 flat = tomobf
+                        elif (filetype == 'dxfile'):
+                                _, flat, dark, _, _ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                                y * projused[2] * num_proj_per_chunk + projused[0],
+                                 np.minimum(
+                                    (y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]),
+                                projused[2]), sino=sinoused)  # dtype=None, , )
                         elif (filetype=='sls'):
                             _, flat, dark, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
@@ -774,6 +830,13 @@ def recon(
                         warnings.simplefilter("ignore")
                         if (filetype == 'als'):
                             flat, dark, floc = read_als_832h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                        elif (filetype == 'dxfile'):
+                            _, flat, dark, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                             projused[0],  projused[1], projused[2]),
+                                                        sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
+                                                              np.minimum(
+                                                                  (y + 1) * sinoused[2] * num_sino_per_chunk + sinoused[
+                                                                      0], sinoused[1]), sinoused[2]))  # dtype=None, , )
                         elif (filetype=='sls'):
                             _, flat, dark, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+projused[0],timepoint*numangles+projused[1],projused[2]), sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) #dtype=None, , )
                         else:
@@ -825,7 +888,7 @@ def recon(
                         if verbose_printing:
                             print("correcting bfexposureratio")
                 elif func_name == 'minus_log':
-                    mx = np.float32(0.01) #setting min %transmission to 1% helps avoid streaking from very high absorbing areas
+                    mx = np.float32(minimum_transmission) #setting min %transmission to 1% helps avoid streaking from very high absorbing areas
                     ne.evaluate('where(tomo>mx, tomo, mx)', out=tomo)
                     tomopy.minus_log(tomo, out=tomo)
                 elif func_name == 'beam_hardening':
