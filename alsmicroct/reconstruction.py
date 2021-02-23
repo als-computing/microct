@@ -175,6 +175,7 @@ def recon_setup(
     dolensdistortion=False,
     lensdistortioncenter=(1280,1080),
     lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
+    minimum_transmission = 0.01,
     *args, **kwargs
     ):
 
@@ -566,6 +567,7 @@ def recon_setup(
         "dolensdistortion": dolensdistortion,
         "lensdistortioncenter": lensdistortioncenter,
         "lensdistortionfactors": lensdistortionfactors,
+        "minimum_transmission": minimum_transmission,
     }
 
     #return second variable tomo, (first and last normalized image), to use it for manual COR checking
@@ -679,6 +681,7 @@ def recon(
     dolensdistortion=False,
     lensdistortioncenter = (1280,1080),
     lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
+    minimum_transmission = 0.01,
     *args, **kwargs
     ):
 
@@ -885,7 +888,7 @@ def recon(
                         if verbose_printing:
                             print("correcting bfexposureratio")
                 elif func_name == 'minus_log':
-                    mx = np.float32(0.01) #setting min %transmission to 1% helps avoid streaking from very high absorbing areas
+                    mx = np.float32(minimum_transmission) #setting min %transmission to 1% helps avoid streaking from very high absorbing areas
                     ne.evaluate('where(tomo>mx, tomo, mx)', out=tomo)
                     tomopy.minus_log(tomo, out=tomo)
                 elif func_name == 'beam_hardening':
