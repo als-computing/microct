@@ -78,7 +78,7 @@ slice_dir = {
 
 def recon_setup(
     filename,
-    filetype = 'als',
+    filetype = 'dxfile',
     timepoint = 0,
     bffilename = None,
     inputPath = './',  # input path, location of the data set to reconstruct
@@ -328,7 +328,7 @@ def recon_setup(
                 #     ind_dark = 0
                 #     ind_flat = 0
                 # tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,numangles-1),ind_dark=ind_dark,ind_flat=ind_flat)
-                tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,lastcor))
+                tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,lastcor,lastcor-1))
             elif (filetype == 'sls'):
                 tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath,filename), exchange_rank=0, proj=(
                     timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
@@ -391,7 +391,7 @@ def recon_setup(
                     tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
                 elif (filetype == 'dxfile'):
                     tomo, flat, dark, coranglelist,_ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                        0, lastcor))  # dtype=None, , )
+                        0, lastcor, lastcor-1))  # dtype=None, , )
                 elif (filetype == 'sls'):
                     tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                         timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
@@ -409,7 +409,7 @@ def recon_setup(
                 tomopy.normalize(tomo, flat, dark, out=tomo)
                 if bfexposureratio != 1:
                     tomo = tomo * bfexposureratio
-            cor = tomopy.find_center_pc(tomo[0], tomo[1], tol=0.25)
+            cor = tomopy.find_center_pc(tomo[0], tomo[-1], tol=0.25)
         elif corFunction == 'skip': #use this to get back the tomo variable without running processing
             cor = numrays/2
         else:
