@@ -246,6 +246,7 @@ def recon_setup(
             group_flat = None
     elif filetype == 'dxfile':
         _, _, _, anglelist, meta = dxchange.exchange.read_dx(os.path.join(inputPath, filename))
+        anglelist = -anglelist
         numslices = int(meta['dimension_y'][0])
         numrays = int(meta['dimension_x'][0])
         pxsize = meta['pixel_size'][0]
