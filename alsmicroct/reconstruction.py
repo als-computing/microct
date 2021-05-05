@@ -54,6 +54,7 @@ except:
 # If you are running out of memory, make one or both of those smaller.
 
 slice_dir = {
+    'write_raw': 'proj',
     'remove_outlier1d': 'sino',
     'remove_outlier2d': 'proj',
     'normalize_nf': 'sino',
@@ -165,8 +166,10 @@ def recon_setup(
     # projections to be ignored in the reconstruction (for simplicity in the code, they will not be removed and will be processed as all other projections but will be set to zero absorption right before reconstruction.
     bfexposureratio=1,  # ratio of exposure time of bf to exposure time of sample
     dorecon=True, #do the tomographic reconstruction
+    writeraw = False,
     writenormalized=False,
     writereconstruction=True,
+    doNormalize=True,
     dominuslog=True,
     slsnumangles=1000,
     slspxsize=0.00081,
@@ -245,6 +248,7 @@ def recon_setup(
         else:
             group_flat = None
     elif filetype == 'dxfile':
+        print(os.path.join(inputPath, filename))
         _, _, _, anglelist, meta = dxchange.exchange.read_dx(os.path.join(inputPath, filename))
         anglelist = -anglelist
         numslices = int(meta['dimension_y'][0])
@@ -424,14 +428,17 @@ def recon_setup(
 
     function_list = []
 
+    if writeraw:
+        function_list.append('write_raw')
     if doOutliers1D:
         function_list.append('remove_outlier1d')
     if doOutliers2D:
         function_list.append('remove_outlier2d')
-    if useNormalize_nf:
-        function_list.append('normalize_nf')
-    else:
-        function_list.append('normalize')
+    if doNormalize:
+        if useNormalize_nf:
+            function_list.append('normalize_nf')
+        else:
+            function_list.append('normalize')
     if dominuslog:
         function_list.append('minus_log')
     if doBeamHardening:
@@ -560,6 +567,8 @@ def recon_setup(
         "BeamHardeningCoefficients": BeamHardeningCoefficients,
         "function_list": function_list,
         "dorecon": dorecon,
+        "doNormalize": doNormalize,
+        "writeraw": writeraw,
         "writenormalized": writenormalized,
         "writereconstruction": writereconstruction,
         "dominuslog": dominuslog,
@@ -674,6 +683,8 @@ def recon(
     floc_independent= 1,
     function_list= ['normalize','minus_log','recon_mask','write_output'],
     dorecon=True,
+    doNormalize=True,
+    writeraw=False,
     writenormalized=False,
     writereconstruction=True,
     dominuslog=True,
@@ -868,10 +879,15 @@ def recon(
                 if verbose_printing:
                     print(func_name, end=" ")
                 curtime = time.time()
-                if func_name == 'remove_outlier1d':
+                if func_name == 'write_raw':
+                    dxchange.write_tiff_stack(tomo, fname=filenametowrite,start=y * num_proj_per_chunk + projused[0])
+                    if y == 0:
+                        dxchange.write_tiff_stack(flat, fname=filenametowrite+'bak',start=0)
+                        dxchange.write_tiff_stack(dark, fname=filenametowrite + 'drk', start=0)
+                elif func_name == 'remove_outlier1d':
                     tomo = tomo.astype(np.float32,copy=False)
                     remove_outlier1d(tomo, outlier_diff1D, size=outlier_size1D, out=tomo)
-                if func_name == 'remove_outlier2d':
+                elif func_name == 'remove_outlier2d':
                     tomo = tomo.astype(np.float32,copy=False)
                     tomopy.remove_outlier(tomo, outlier_diff2D, size=outlier_size2D, axis=0, out=tomo)
                 elif func_name == 'normalize_nf':
