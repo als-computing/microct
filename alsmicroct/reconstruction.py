@@ -249,19 +249,21 @@ def recon_setup(
             group_flat = None
     elif filetype == 'dxfile':
         print(os.path.join(inputPath, filename))
-        _, _, _, anglelist, meta = dxchange.exchange.read_dx(os.path.join(inputPath, filename))
+        _, _, _, anglelist = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename))
         anglelist = -anglelist
-        numslices = int(meta['dimension_y'][0])
-        numrays = int(meta['dimension_x'][0])
-        pxsize = meta['pixel_size'][0]
-        numangles = int(meta['num_angles'][0])
-        angularrange = meta['range'][0]
-        inter_bright = int(meta['i0cycle'][0])
+        numslices = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_y")[0])
+        numrays = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_x")[0])
+        pxsize = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/pixel_size")[0]
+        numangles = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/rotation/num_angles")[0])
+        angularrange = dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/rotation/range")[0]
+        inter_bright = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/flat_fields/i0cycle")[0])
         group_flat = [0, numangles - 1]
-        nflat =  int(meta['num_flat_fields'][0])
+        nflat = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/flat_fields/num_flat_fields")[0])
         ind_flat = list(range(0, nflat))
-        ndark = int(meta['num_dark_fields'][0])
+        ndark = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/dark_fields/num_dark_fields")[0])
         ind_dark = list(range(0, ndark))
+        propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/camera_motor_stack/setup/camera_distance")[0]
+        kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[0] / 1000
     elif filetype == 'sls':
         datafile = h5py.File(os.path.join(inputPath, filename), 'r')
         slsdata = datafile["exchange/data"]
