@@ -335,7 +335,8 @@ def recon_setup(
                 #     ind_dark = 0
                 #     ind_flat = 0
                 # tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,numangles-1),ind_dark=ind_dark,ind_flat=ind_flat)
-                tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,lastcor,lastcor-1))
+                # tomo, flat, dark, coranglelist, _ = dxchange.exchange.read_dx(os.path.join(inputPath, filename), proj=(0,lastcor,lastcor-1))
+                tomo, flat, dark, coranglelist = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), proj=(0,lastcor,lastcor-1))
             elif (filetype == 'sls'):
                 tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath,filename), exchange_rank=0, proj=(
                     timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
@@ -397,7 +398,7 @@ def recon_setup(
                 if (filetype == 'als'):
                     tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
                 elif (filetype == 'dxfile'):
-                    tomo, flat, dark, coranglelist,_ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                    tomo, flat, dark, coranglelist = dxchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                         0, lastcor, lastcor-1))  # dtype=None, , )
                 elif (filetype == 'sls'):
                     tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
@@ -757,7 +758,7 @@ def recon(
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
                                 flat = tomobf
                         elif (filetype == 'dxfile'):
-                            tomo, flat, dark, _, _= dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0,
+                            tomo, flat, dark, _= dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0,
                                                                proj=( y * projused[2] * num_proj_per_chunk + projused[0],
                                                                      + np.minimum((y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]), projused[2]),
                                                                sino=sinoused)  # dtype=None, , )
@@ -772,7 +773,7 @@ def recon(
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath, bffilename),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
                                 flat = tomobf
                         elif (filetype == 'dxfile'):
-                                tomo, flat, dark, _, _ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0,
+                                tomo, flat, dark, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0,
                                                                proj=( projused[0],
                                                                       projused[1], projused[2]),
                                                                sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
@@ -805,7 +806,7 @@ def recon(
                         if (filetype == 'als'):
                             tomo = read_als_832h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
                         elif (filetype == 'dxfile'):
-                            tomo, _, _, _, _ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                            tomo, _, _, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                              projused[0], projused[1], projused[2]),
                                                      sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
                                                            np.minimum(
@@ -828,7 +829,7 @@ def recon(
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
                                 flat = tomobf
                         elif (filetype == 'dxfile'):
-                                _, flat, dark, _, _ = dxchange.read_dx(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                                _, flat, dark, _ = dxchange.excahnge.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                                 y * projused[2] * num_proj_per_chunk + projused[0],
                                  np.minimum(
                                     (y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]),
