@@ -248,14 +248,24 @@ def recon_setup(
         else:
             group_flat = None
     elif filetype == 'dxfile':
-        anglelist = dxreader.read_hdf5(os.path.join(inputPath, filename), '/exchange/theta', slc=None)
+        numangles = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/rotation/num_angles")[0])
+        angularrange = dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/rotation/range")[0]
+        anglelist = dxchange.read_hdf5(os.path.join(inputPath, filename), '/exchange/theta', slc=None)
+        if anglelist is None:
+            try:
+                # See if the rotation start, step, num_angles are in the file
+                rotation_start = dxchange.read_hdf5(os.path.join(inputPath, filename),
+                                                    '/process/acquisition/rotation/rotation_start')[0]
+                rotation_step = dxchange.read_hdf5(os.path.join(inputPath, filename),
+                                                   '/process/acquisition/rotation/rotation_step')[0]
+                anglelist = rotation_start + rotation_step * range(numangles)
+            except:
+                anglelist = np.linspace(0., angularrange, numangles)
         anglelist = np.deg2rad(anglelist)
         anglelist = -anglelist
         numslices = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_y")[0])
         numrays = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_x")[0])
         pxsize = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/pixel_size")[0]
-        numangles = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/rotation/num_angles")[0])
-        angularrange = dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/rotation/range")[0]
         inter_bright = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/flat_fields/i0cycle")[0])
         group_flat = [0, numangles - 1]
         nflat = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/flat_fields/num_flat_fields")[0])
