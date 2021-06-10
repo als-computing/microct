@@ -79,7 +79,7 @@ slice_dir = {
 
 def recon_setup(
     filename,
-    filetype = 'dxfile',
+    filetype = 'dxfile', #other options are als, als1131, sls
     timepoint = 0,
     bffilename = None,
     inputPath = './',  # input path, location of the data set to reconstruct
@@ -104,7 +104,7 @@ def recon_setup(
     ringAlpha=1.5,  # used in Titarenko ring removal (doTIringremoval)
     ringSize=5,  # used in smoothing filter ring removal (doSFringremoval)
     doPhaseRetrieval=False,  # phase retrieval
-    alphaReg=0.0002,  # smaller = smoother (used for phase retrieval)
+    alphaReg=0.00001,  # smaller = smoother (used for phase retrieval)
     propagation_dist=75,  # sample-to-scintillator distance (phase retrieval)
     kev=24,  # energy level (phase retrieval)
     butterworth_cutoff=0.25,  # 0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
@@ -199,7 +199,7 @@ def recon_setup(
     if verbose_printing:
         print(", reading metadata")
 
-    if filetype == 'als':
+    if (filetype == 'als') or (filetype == 'als1131'):
         datafile = h5py.File(os.path.join(inputPath,filename), 'r')
         gdata = dict(dxchange.reader._find_dataset_group(datafile).attrs)
         pxsize = float(gdata['pxsize']) / 10  # /10 to convert units from mm to cm
@@ -248,8 +248,8 @@ def recon_setup(
         else:
             group_flat = None
     elif filetype == 'dxfile':
-        print(os.path.join(inputPath, filename))
-        _, _, _, anglelist = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename))
+        anglelist = dxreader.read_hdf5(os.path.join(inputPath, filename), '/exchange/theta', slc=None)
+        anglelist = np.deg2rad(anglelist)
         anglelist = -anglelist
         numslices = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_y")[0])
         numrays = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_x")[0])
@@ -325,11 +325,16 @@ def recon_setup(
         # I don't want to see the warnings about the reader using a deprecated variable in dxchange
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if (filetype == 'als'):
+            if (filetype == 'als') or (filetype == 'als1131'):
                 if corLoadMinimalBakDrk:
                     ind_dark = 0
                     ind_flat = 0
-                tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor),ind_dark=ind_dark,ind_flat=ind_flat)
+                if filetype == 'als':
+                    tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor),ind_dark=ind_dark,ind_flat=ind_flat)
+                else:
+                    tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath, filename),
+                                                                     ind_tomo=(0, lastcor), ind_dark=ind_dark,
+                                                                     ind_flat=ind_flat)
             elif filetype == 'dxfile':
                 # if corLoadMinimalBakDrk:
                 #     ind_dark = 0
@@ -346,7 +351,7 @@ def recon_setup(
                 tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename))
                 flat = tomobf
         tomo = tomo.astype(np.float32)
-        if useNormalize_nf and (filetype == 'als'):
+        if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
             tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
             if bfexposureratio != 1:
                 tomo = tomo * bfexposureratio
@@ -365,12 +370,17 @@ def recon_setup(
                     tomovo, flat, dark, coranglelist = read_sls(os.path.join(inputPath, filename), exchange_rank=0, sino=(sinoused[0],sinoused[0]+1,1), proj=(timepoint*numangles+projused[0],timepoint*numangles+projused[1],projused[2]))  # dtype=None, , )
                 else:
                     return
-                if bffilename is not None and (filetype == 'als'):
-                    tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename), sino=(sinoused[0],sinoused[0]+1,1))
-                    flat = tomobf
+                if bffilename is not None:
+                    if (filetype == 'als'):
+                        tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename), sino=(sinoused[0],sinoused[0]+1,1))
+                        flat = tomobf
+                    elif (filetype == 'als1131'):
+                        tomobf, flatbf, darkbf, flocbf = read_als_1131h5(os.path.join(inputPath, bffilename),
+                                                                                 sino=(sinoused[0], sinoused[0] + 1, 1))
+                        flat = tomobf
             tomovo = tomovo.astype(np.float32)
 
-            if useNormalize_nf and (filetype == 'als'):
+            if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
                 tomopy.normalize_nf(tomovo, flat, dark, floc, out=tomovo)
                 if bfexposureratio != 1:
                     tomovo = tomovo * bfexposureratio
@@ -397,6 +407,8 @@ def recon_setup(
                 warnings.simplefilter("ignore")
                 if (filetype == 'als'):
                     tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
+                elif (filetype == 'als1131'):
+                    tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
                 elif (filetype == 'dxfile'):
                     tomo, flat, dark, coranglelist = dxchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                         0, lastcor, lastcor-1))  # dtype=None, , )
@@ -405,11 +417,15 @@ def recon_setup(
                         timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
                 else:
                     return
-                if bffilename is not None and (filetype == 'als'):
-                    tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename))
-                    flat = tomobf
+                if bffilename is not None:
+                    if (filetype == 'als'):
+                        tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename))
+                        flat = tomobf
+                    elif (filetype == 'als1131'):
+                        tomobf, flatbf, darkbf, flocbf = read_als_1131h5(os.path.join(inputPath, bffilename))
+                        flat = tomobf
             tomo = tomo.astype(np.float32)
-            if useNormalize_nf and (filetype == 'als'):
+            if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
                 tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
                 if bfexposureratio != 1:
                     tomo = tomo * bfexposureratio
@@ -476,7 +492,7 @@ def recon_setup(
     recon_dict = {
         "inputPath": inputPath, #input file path
         "filename": filename, #input file name
-        "filetype": filetype,
+        "filetype": filetype, #other options are als, als1131, sls
         "timepoint": timepoint,
         "fulloutputPath": fulloutputPath,
         "outputFilename": outputFilename,
@@ -595,7 +611,7 @@ def recon_setup(
 # @profile
 def recon(
     filename,
-    filetype = 'als',
+    filetype = 'als', #other options are als, als1131, sls
     timepoint = 0,
     bffilename = None,
     inputPath = './', #input path, location of the data set to reconstruct
@@ -617,7 +633,7 @@ def recon(
     ringAlpha = 1.5, # used in Titarenko ring removal (doTIringremoval)
     ringSize = 5, # used in smoothing filter ring removal (doSFringremoval)
     doPhaseRetrieval = False, # phase retrieval
-    alphaReg = 0.0002, # smaller = smoother (used for phase retrieval)
+    alphaReg = 0.00001, # smaller = smoother (used for phase retrieval)
     propagation_dist = 75, # sample-to-scintillator distance (phase retrieval)
     kev = 24, # energy level (phase retrieval)
     butterworth_cutoff = 0.25, #0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
@@ -757,6 +773,11 @@ def recon(
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
                                 flat = tomobf
+                        elif (filetype=='als1131'):
+                            tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1],sinoused[2]))
+                            if bffilename is not None:
+                                tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
+                                flat = tomobf
                         elif (filetype == 'dxfile'):
                             tomo, flat, dark, _= dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0,
                                                                proj=( y * projused[2] * num_proj_per_chunk + projused[0],
@@ -771,6 +792,11 @@ def recon(
                             tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath, bffilename),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
+                                flat = tomobf
+                        elif (filetype == 'als1131'):
+                            tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                            if bffilename is not None:
+                                tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath, bffilename),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
                                 flat = tomobf
                         elif (filetype == 'dxfile'):
                                 tomo, flat, dark, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0,
@@ -790,8 +816,8 @@ def recon(
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     if axis=='proj':
-                        if (filetype == 'als'):
-                            tomo = read_als_832h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]))
+                        if (filetype == 'als') or (filetype == 'als1131'):
+                            tomo = read_als_h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]), bl=filetype)
                         elif (filetype == 'dxfile'):
                             tomo, _, _, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                             y * projused[2] * num_proj_per_chunk + projused[0],
@@ -803,8 +829,8 @@ def recon(
                         else:
                             break
                     else:
-                        if (filetype == 'als'):
-                            tomo = read_als_832h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                        if (filetype == 'als') or (filetype == 'als1131'):
+                            tomo = read_als_h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]),bl=filetype)
                         elif (filetype == 'dxfile'):
                             tomo, _, _, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                              projused[0], projused[1], projused[2]),
@@ -823,11 +849,15 @@ def recon(
                     tomo = dxchange.reader.read_hdf5(tempfilenames[curtemp],'/tmp/tmp',slc=((start,end,1),(0,numslices,1),(0,numrays,1))) #read in intermediate file
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
-                        if (filetype == 'als'):
-                            flat, dark, floc = read_als_832h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]))
+                        if (filetype == 'als') or (filetype == 'als1131'):
+                            flat, dark, floc = read_als_h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]),bl=filetype)
                             if bffilename is not None:
-                                tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
-                                flat = tomobf
+                                if filetype == 'als':
+                                    tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
+                                    flat = tomobf
+                                elif filetype == 'als1131':
+                                    tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
+                                    flat = tomobf
                         elif (filetype == 'dxfile'):
                                 _, flat, dark, _ = dxchange.excahnge.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                                 y * projused[2] * num_proj_per_chunk + projused[0],
@@ -843,8 +873,8 @@ def recon(
                     tomo = dxchange.reader.read_hdf5(tempfilenames[curtemp],'/tmp/tmp',slc=((0,numangles,1),(start,end,1),(0,numrays,1)))
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
-                        if (filetype == 'als'):
-                            flat, dark, floc = read_als_832h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                        if (filetype == 'als') or (filetype == 'als1131'):
+                            flat, dark, floc = read_als_h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]),bl=filetype)
                         elif (filetype == 'dxfile'):
                             _, flat, dark, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                              projused[0],  projused[1], projused[2]),
@@ -941,15 +971,16 @@ def recon(
                         tomo[b] = st.rotate(tomo[b], correcttilt, center=cntr, preserve_range=True, order=1, mode='edge', clip=True) # center=None means image is rotated around its center; order=1 is default, order of spline interpolation
 #					tomo = tomo[:, :, 10:-10]
                 elif func_name == 'lensdistortion':
-                    print(lensdistortioncenter[0])
-                    print(lensdistortioncenter[1])
-                    print(lensdistortionfactors[0])
-                    print(lensdistortionfactors[1])
-                    print(lensdistortionfactors[2])
-                    print(lensdistortionfactors[3])
-                    print(lensdistortionfactors[4])
-                    print(type(lensdistortionfactors[0]))
-                    print(type(lensdistortionfactors))
+                    if verbose_printing:
+                        print(lensdistortioncenter[0])
+                        print(lensdistortioncenter[1])
+                        print(lensdistortionfactors[0])
+                        print(lensdistortionfactors[1])
+                        print(lensdistortionfactors[2])
+                        print(lensdistortionfactors[3])
+                        print(lensdistortionfactors[4])
+                        print(type(lensdistortionfactors[0]))
+                        print(type(lensdistortionfactors))
                     tomo = tomopy.prep.alignment.distortion_correction_proj(tomo, lensdistortioncenter[0], lensdistortioncenter[1], lensdistortionfactors, ncore=None,nchunk=None)
                 elif func_name == 'do_360_to_180':
 
@@ -1309,7 +1340,7 @@ def convertthetype(val):
 # Tomo
 ###############################################################################################
 
-def read_als_832h5_tomo_only(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
+def read_als_h5_tomo_only(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
                    proj=None, sino=None):
     """
     Read ALS 8.3.2 hdf5 file with stacked datasets.
@@ -1345,8 +1376,8 @@ def read_als_832h5_tomo_only(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
 # Non tomo
 #####################################################################################
 
-def read_als_832h5_non_tomo(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
-                   proj=None, sino=None):
+def read_als_h5_non_tomo(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
+                   proj=None, sino=None, whichbeamline='als'):
     """
     Read ALS 8.3.2 hdf5 file with stacked datasets.
 
@@ -1391,7 +1422,10 @@ def read_als_832h5_non_tomo(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
             if group_flat[-1] != nproj - 1:
                 group_flat.append(nproj - 1)
         elif inter_bright == 0:
-            group_flat = [0, nproj - 1]
+            if whichbeamline == 'als1131':
+                group_flat = [nproj - 1]
+            else:
+                group_flat = [0, nproj - 1]
         else:
             group_flat = None
 
@@ -1402,6 +1436,105 @@ def read_als_832h5_non_tomo(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
             dgroup, dark_name, ind_dark, slc=(None, sino), out_ind=group_dark)
 
     return flat, dark, dxchange.reader._map_loc(ind_tomo, group_flat)
+
+
+
+######################################################################################################
+
+def read_als_1131h5(fname, ind_tomo=None, ind_flat=None, ind_dark=None,
+                   proj=None, sino=None):
+    """
+    Read ALS 11.3.1 hdf5 file with stacked datasets.
+
+    Parameters
+    ----------
+
+    fname : str
+        Path to hdf5 file.
+
+    ind_tomo : list of int, optional
+        Indices of the projection files to read.
+
+    ind_flat : list of int, optional
+        Indices of the flat field files to read.
+
+    ind_dark : list of int, optional
+        Indices of the dark field files to read.
+
+    proj : {sequence, int}, optional
+        Specify projections to read. (start, end, step)
+
+    sino : {sequence, int}, optional
+        Specify sinograms to read. (start, end, step)
+
+    Returns
+    -------
+    ndarray
+        3D tomographic data.
+
+    ndarray
+        3D flat field data.
+
+    ndarray
+        3D dark field data.
+
+    list of int
+        Indices of flat field data within tomography projection list
+    """
+
+    with dxchange.reader.find_dataset_group(fname) as dgroup:
+        dname = dgroup.name.split('/')[-1]
+
+        tomo_name = dname + '_0000_0000.tif'
+        flat_name = dname + 'bak_0000.tif'
+        dark_name = dname + 'drk_0000.tif'
+
+        # Read metadata from dataset group attributes
+        keys = list(dgroup.attrs.keys())
+        if 'nangles' in keys:
+            nproj = int(dgroup.attrs['nangles'])
+        if 'i0cycle' in keys:
+            inter_bright = int(dgroup.attrs['i0cycle'])
+        if 'num_bright_field' in keys:
+            nflat = int(dgroup.attrs['num_bright_field'])
+        else:
+            nflat = dxchange.reader._count_proj(dgroup, flat_name, nproj,
+                                         inter_bright=inter_bright)
+        if 'num_dark_fields' in keys:
+            ndark = int(dgroup.attrs['num_dark_fields'])
+        else:
+            ndark = dxchange.reader._count_proj(dgroup, dark_name, nproj)
+
+        # Create arrays of indices to read projections, flats and darks
+        if ind_tomo is None:
+            ind_tomo = list(range(0, nproj))
+        if proj is not None:
+            ind_tomo = ind_tomo[slice(*proj)]
+        ind_dark = list(range(0, ndark))
+        group_dark = [nproj - 1]
+        ind_flat = list(range(0, nflat))
+
+        if inter_bright > 0:
+            group_flat = list(range(0, nproj, inter_bright))
+            if group_flat[-1] != nproj - 1:
+                group_flat.append(nproj - 1)
+        elif inter_bright == 0:
+            #group_flat = [0, nproj - 1]
+            group_flat = [nproj - 1]
+        else:
+            group_flat = None
+
+        tomo = dxchange.reader.read_hdf5_stack(
+            dgroup, tomo_name, ind_tomo, slc=(None, sino))
+
+        flat = dxchange.reader.read_hdf5_stack(
+            dgroup, flat_name, ind_flat, slc=(None, sino), out_ind=group_flat)
+
+        dark = dxchange.reader.read_hdf5_stack(
+            dgroup, dark_name, ind_dark, slc=(None, sino), out_ind=group_dark)
+
+#    return tomo, flat, dark, dxchange.reader._map_loc(ind_tomo, group_flat)
+    return tomo, flat, dark, 0
 
 ######################################################################################################
 
