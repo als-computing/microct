@@ -105,8 +105,8 @@ def recon_setup(
     ringSize=5,  # used in smoothing filter ring removal (doSFringremoval)
     doPhaseRetrieval=False,  # phase retrieval
     alphaReg=0.00001,  # smaller = smoother (used for phase retrieval)
-    propagation_dist=75,  # sample-to-scintillator distance (phase retrieval)
-    kev=24,  # energy level (phase retrieval)
+    propagation_dist=75.0,  # sample-to-scintillator distance (phase retrieval)
+    kev=24.0,  # energy level (phase retrieval)
     butterworth_cutoff=0.25,  # 0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
     butterworth_order=2,  # for reconstruction
     doTranslationCorrection=False,  # correct for linear drift during scan
@@ -265,7 +265,7 @@ def recon_setup(
         anglelist = -anglelist
         numslices = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_y")[0])
         numrays = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_x")[0])
-        pxsize = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/pixel_size")[0]
+        pxsize = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/pixel_size")[0] / 10.0  # /10 to convert units from mm to cm
         inter_bright = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/flat_fields/i0cycle")[0])
         group_flat = [0, numangles - 1]
         nflat = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/flat_fields/num_flat_fields")[0])
@@ -274,6 +274,11 @@ def recon_setup(
         ind_dark = list(range(0, ndark))
         propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/camera_motor_stack/setup/camera_distance")[0]
         kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[0] / 1000
+        if (isinstance(kev, int) or isinstance(kev, float)):
+            if kev > 1000:
+                kev = 30.0
+        else:
+            kev = 30.0
     elif filetype == 'sls':
         datafile = h5py.File(os.path.join(inputPath, filename), 'r')
         slsdata = datafile["exchange/data"]
@@ -489,13 +494,17 @@ def recon_setup(
     if dorecon:
         function_list.append('recon_mask')
     if doPolarRing:
-        function_list.append('polar_ring')
+        if dorecon:
+            function_list.append('polar_ring')
     if doPolarRing2:
-        function_list.append('polar_ring2')
+        if dorecon:
+            function_list.append('polar_ring2')
     if castTo8bit:
-        function_list.append('castTo8bit')
+        if dorecon:
+            function_list.append('castTo8bit')
     if writereconstruction:
-        function_list.append('write_reconstruction')
+        if dorecon:
+            function_list.append('write_reconstruction')
     if writenormalized:
         function_list.append('write_normalized')
 
@@ -644,8 +653,8 @@ def recon(
     ringSize = 5, # used in smoothing filter ring removal (doSFringremoval)
     doPhaseRetrieval = False, # phase retrieval
     alphaReg = 0.00001, # smaller = smoother (used for phase retrieval)
-    propagation_dist = 75, # sample-to-scintillator distance (phase retrieval)
-    kev = 24, # energy level (phase retrieval)
+    propagation_dist = 75.0, # sample-to-scintillator distance (phase retrieval)
+    kev = 24.0, # energy level (phase retrieval)
     butterworth_cutoff = 0.25, #0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
     butterworth_order = 2, # for reconstruction
     doTranslationCorrection = False, # correct for linear drift during scan
@@ -697,7 +706,7 @@ def recon(
     BeamHardeningCoefficients = (0, 1, 0, 0, 0, .1), # 6 values, tomo = a0 + a1*tomo + a2*tomo^2 + a3*tomo^3 + a4*tomo^4 + a5*tomo^5
     projIgnoreList = None, # projections to be ignored in the reconstruction (for simplicity in the code, they will not be removed and will be processed as all other projections but will be set to zero absorption right before reconstruction.
     bfexposureratio = 1, #ratio of exposure time of bf to exposure time of sample
-    pxsize = 1,
+    pxsize = .001,
     numslices= 100,
     numangles= 3,
     angularrange= 180,
@@ -1014,6 +1023,10 @@ def recon(
                     anglelist = anglelist[:numangles]
 
                 elif func_name == 'phase_retrieval':
+                    print(pxsize)
+                    print(propagation_dist)
+                    print(kev)
+                    print(alphaReg)
                     tomo = tomopy.retrieve_phase(tomo, pixel_size=pxsize, dist=propagation_dist, energy=kev, alpha=alphaReg, pad=True)
                 
                 elif func_name == 'translation_correction':
