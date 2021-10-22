@@ -1023,10 +1023,6 @@ def recon(
                     anglelist = anglelist[:numangles]
 
                 elif func_name == 'phase_retrieval':
-                    print(pxsize)
-                    print(propagation_dist)
-                    print(kev)
-                    print(alphaReg)
                     tomo = tomopy.retrieve_phase(tomo, pixel_size=pxsize, dist=propagation_dist, energy=kev, alpha=alphaReg, pad=True)
                 
                 elif func_name == 'translation_correction':
