@@ -274,7 +274,14 @@ def recon_setup(
         ndark = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/dark_fields/num_dark_fields")[0])
         ind_dark = list(range(0, ndark))
         propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/camera_motor_stack/setup/camera_distance")[0]
+        if (propagation_dist == 0):
+            propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename),
+                                                  "/measurement/instrument/camera_motor_stack/setup/camera_distance")[1]
         kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[0] / 1000
+        if (kev == 0):
+            kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[
+                      1] / 1000
+
         if (isinstance(kev, int) or isinstance(kev, float)):
             if kev > 1000:
                 kev = 30.0
