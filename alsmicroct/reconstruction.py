@@ -260,7 +260,8 @@ def recon_setup(
                                                    '/process/acquisition/rotation/rotation_step')[0]
                 anglelist = rotation_start + rotation_step * range(numangles)
             except:
-                anglelist = np.linspace(0., angularrange, numangles)
+                anglelist = np.linspace(0. - angle_offset, angularrange, numangles)
+        anglelist = anglelist - angle_offset
         anglelist = np.deg2rad(anglelist)
         anglelist = -anglelist
         numslices = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/detector/dimension_y")[0])
