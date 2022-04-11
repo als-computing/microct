@@ -1,0 +1,13 @@
+name: tomopy_als
+dependencies:
+  - numpy
+  - scipy
+  - matplotlib >= 3.4
+  - conda-forge::tomopy = 1.10.1
+  - astra-toolbox::astra-toolbox
+  - conda-forge::dxchange
+  - conda-forge::svmbir
+  - conda-forge::itk
+  - conda-forge::scikit-image >= 0.18
+  - conda-forge::ipympl = 0.8.6
+  - pip
