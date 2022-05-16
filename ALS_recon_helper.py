@@ -23,7 +23,7 @@ def check_for_gpu():
         subprocess.check_output('nvidia-smi')
         print('Nvidia GPU detected, will use to reconstruct!')
         return True
-    except Exception: # this command not being found can raise quite a few different errors depending on the configuration
+    except Exception: # if command not found, cant talk to GPU (or doesnt exists)
         print('No Nvidia GPU in system, will use CPU')
         return False
 
@@ -58,26 +58,34 @@ def read_metadata(path,print_flag=True):
             'kev': kev,
             'angularrange': angularrange}
 
-def read_data(path, proj=None, sino=None, downsample_factor=None, raw=False):
+def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False, args=None):
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
+    tomopy.normalize(tomo, flat, dark, out=tomo)
+        # flat = np.asarray([transform.downscale_local_mean(f, (downsample_factor,downsample_factor), cval=0).astype(f.dtype) for f in flat])
+        # dark = np.asarray([transform.downscale_local_mean(d, (downsample_factor,downsample_factor), cval=0).astype(d.dtype) for d in dark])
+    if prelog:
+        # downsampling pre-log can lead to bright halo in recon with radius = nrays -- may need to mask recon
+        if downsample_factor and downsample_factor!=1:
+            tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
+        return tomo, angles
+    if args:
+        tomo = preprocess_tomo(tomo, args)
+    tomopy.minus_log(tomo, out=tomo)
+    # downsampling post-log is better
     if downsample_factor and downsample_factor!=1:
         tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
-        flat = np.asarray([transform.downscale_local_mean(f, (downsample_factor,downsample_factor), cval=0).astype(f.dtype) for f in flat])
-        dark = np.asarray([transform.downscale_local_mean(d, (downsample_factor,downsample_factor), cval=0).astype(d.dtype) for d in dark])
-    if raw:
-        return tomo, flat, dark, angles
-    else:
-        tomo = norm_minus_log(tomo, flat, dark)
-        return tomo, angles
+    return tomo, angles
 
 # normalize with flat/dark, threshold transmission, and take negative log
-def norm_minus_log(tomo, flat, dark, minimum_transmission=None):
-        tomopy.normalize(tomo, flat, dark, out=tomo)
-        if minimum_transmission:
-            tomo[tomo < minimum_transmission] = minimum_transmission
-        tomopy.minus_log(tomo, out=tomo)
-        return tomo
+def preprocess_tomo(tomo, args):
+    # sarepy remove stripes
+    tomo = tomopy.remove_all_stripe(tomo,snr=args['snr'], la_size=args['la_size'], sm_size=args['sm_size'])
+    # threshold low measurements
+    if args['minimum_transmission']:
+        tomo[tomo < args['minimum_transmission'] ] = args['minimum_transmission']
+
+    return tomo
 
 # this is the default processing done in Dula's reconstruction.py
 def preprocess_tomo_orig(tomo, flat, dark,
@@ -92,10 +100,21 @@ def preprocess_tomo_orig(tomo, flat, dark,
     # median filter -- WHY ACROSS ROTATION AXIS?
     tomopy.misc.corr.remove_outlier1d(tomo, outlier_diff1D, size=outlier_size1D, axis=0, ncore=None, out=tomo)
     # normalize with flat/dark, threshold transmission, and take negative log
-    tomo = norm_minus_log(tomo, flat, dark, minimum_transmission=minimum_transmission)
+    if minimum_transmission:
+        tomo[tomo < minimum_transmission] = minimum_transmission
+    tomopy.minus_log(tomo, out=tomo)
     # post-log, wavelet-based ring removal
     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
     return tomo
+
+def mask_recon(recon,r=None):
+    # Need to add this to remove bright halo
+    x, y = np.arange(recon.shape[1]), np.arange(recon.shape[2])
+    X,Y = np.meshgrid(x-x.mean(),y-y.mean(),indexing='ij')
+    if r is None:
+        r = np.maximum(recon.shape[1],recon.shape[2])
+    recon[:,(X**2 + Y**2 > (r)**2)] = 0
+    return recon
 
 def auto_find_cor(path):
     metadata = read_metadata(path,print_flag=False)
@@ -205,7 +224,12 @@ def plot_recon(recon,fignum=1,figsize=4,clims=None):
     fig = plt.figure(num=fignum,figsize=(figsize, figsize))
     axs = plt.gca()
     img = axs.imshow(recon[0],cmap='gray',vmin=clims[0],vmax=clims[1])    
-    return img, axs
+    clim_slider = widgets.interactive(set_clim, img=widgets.fixed(img),
+                                      clims=widgets.FloatRangeSlider(description='Color Scale', layout=widgets.Layout(width='50%'),
+                                                                           min=recon.min(), max=recon.max(),
+                                                                           step=(recon.max()-recon.min())/500, value=img.get_clim()))
+
+    return img, axs, clim_slider
 
 def set_cor(i,img,axs,recons,cors):
     img.set_data(recons[i][0])
@@ -214,7 +238,9 @@ def set_cor(i,img,axs,recons,cors):
 def set_slice(slice_num,img,axs,recon,slices):
     img.set_data(recon[slice_num])
     axs.set_title(f"Slice {slices[slice_num]}")
-    
+
+def set_clim(img,clims):
+    img.set_clim(vmin=clims[0],vmax=clims[1])        
     
 def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,figsize=4):
     if plt.fignum_exists(num=fignum): plt.close(fignum)
