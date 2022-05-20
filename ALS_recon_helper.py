@@ -139,7 +139,8 @@ def shift_projections(projs, COR, yshift=0):
 def astra_fbp_recon(tomo,angles,center=0,fc=None,gpu=False):
     
     if fc:
-        b = signal.firwin(100,fc)
+        N = np.minimum(100,tomo.shape[2])
+        b = signal.firwin(N,fc)
         # tomo = signal.lfilter(b,1,axis=2)
         tomo = signal.filtfilt(b,1,tomo,axis=2)
     
@@ -155,30 +156,37 @@ def astra_fbp_recon(tomo,angles,center=0,fc=None,gpu=False):
                            options={'method':"FBP", 'proj_type':'linear'})
     return rec
 
-### without using tomopy wrapper (not complete)
-# def astra_fbp_recon(tomo,angles,cor=None,algorithm='FBP'):
-#     tomo = tomo.squeeze()
-#     numrays = int(tomo.shape[1])
-#     if cor is None: cor = 0
-#     proj_geom = astra.create_proj_geom('parallel', 1, numrays, angles)
-#     proj_geom = astra.functions.geom_postalignment(proj_geom, cor)
-#     sino_id = astra.data2d.create('-sino', proj_geom, tomo)
-#     # min_x, max_x, min_y, max_y = (-numrays/2+cor, numrays/2+cor, -numrays/2, numrays/2)
-#     # print(min_x, max_x, min_y, max_y)
-#     # vol_geom = astra.create_vol_geom(numrays, numrays, min_x, max_x, min_y, max_y)
-#     vol_geom = astra.create_vol_geom(numrays, numrays)
-#     rec_id = astra.data2d.create('-vol', vol_geom)
-#     proj_id = astra.create_projector('strip', proj_geom, vol_geom) # can choose line (fastest?), or strip (most accurate?) or linear (??)
-
-#     cfg = astra.astra_dict(algorithm) # FBP is the fastest algorithm (use FBP_CUDA if on GPU machine) 
-#     cfg['ReconstructionDataId'] = rec_id
-#     cfg['ProjectionDataId'] = sino_id
-#     cfg['ProjectorId'] = proj_id
-
-#     alg_id = astra.algorithm.create(cfg)
-#     astra.algorithm.run(alg_id)
-#     rec = astra.data2d.get(rec_id)
-#     return rec
+def astra_recon_3d(tomo,angles_or_vectors,vectors=True,algorithm=None):
+    numslices = tomo.shape[1]
+    numrays = tomo.shape[2]
+    if vectors: # vectors created with astra_projection_wrapper
+        vectors = angles_or_vectors
+        proj_geom = astra.create_proj_geom('parallel3d_vec', numslices, numrays, vectors)
+    else: # just angles, not vectors
+        angles = -angles_or_vectors # need to be negative to match tomopy
+        proj_geom = astra.create_proj_geom('parallel3d', 1.0, 1.0, numslices, numrays, angles)
+    
+    if algorithm == 'CGLS':
+        cfg = astra.astra_dict('CGLS3D_CUDA')
+    else: # FBP
+        # filtered
+        fourier_filter = transform.radon_transform._get_fourier_filter(tomo.shape[2],'None').squeeze()
+        tomo = np.real(ifft( fft(tomo, axis=2) * fourier_filter, axis=2))
+        # backprojection
+        cfg = astra.astra_dict('BP3D_CUDA')
+        
+    vol_geom = astra.create_vol_geom(numrays,numrays,numslices)
+    rec_id = astra.data3d.create('-vol', vol_geom)
+    proj_id = astra.data3d.create('-proj3d', proj_geom, tomo.transpose(1,0,2))
+    cfg['ReconstructionDataId'] = rec_id
+    cfg['ProjectionDataId'] = proj_id    
+    alg_id = astra.algorithm.create(cfg)
+    if algorithm == 'CGLS':
+        astra.algorithm.run(alg_id,20)
+    else:
+        astra.algorithm.run(alg_id)
+    rec = astra.data3d.get(rec_id)
+    return rec
 
 def cache_svmbir_projector(img_size,num_angles,num_threads=None):
 
@@ -236,8 +244,11 @@ def set_cor(i,img,axs,recons,cors):
     axs.set_title(f"COR = {cors[i]} pixels (at full res)")
     
 def set_slice(slice_num,img,axs,recon,slices):
-    img.set_data(recon[slice_num])
-    axs.set_title(f"Slice {slices[slice_num]}")
+    if not isinstance(axs,list): axs = [axs] 
+    if not isinstance(img,list): img = [img]
+    for ax,im in zip(axs,img):
+        im.set_data(recon[slice_num])
+        ax.set_title(f"Slice {slices[slice_num]}")
 
 def set_clim(img,clims):
     img.set_clim(vmin=clims[0],vmax=clims[1])        
@@ -268,8 +279,10 @@ def shift_proj(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_factor=1):
 def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
     if plt.fignum_exists(fignum): plt.close(fignum)
     fig, axs = plt.subplots(1,2,num=fignum,figsize=(2*figsize,figsize),sharex=True,sharey=True)
-    axs[0].imshow(recon1[0],cmap='gray',vmin=np.percentile(recon1[0],1),vmax=np.percentile(recon1[0],99))
+    img = [None, None]
+    img[0] = axs[0].imshow(recon1[0],cmap='gray',vmin=np.percentile(recon1[0],1),vmax=np.percentile(recon1[0],99))
     axs[0].set_title(titles[0])
-    axs[1].imshow(recon2[0],cmap='gray',vmin=np.percentile(recon2[0],1),vmax=np.percentile(recon2[0],99))
+    img[1] = axs[1].imshow(recon2[0],cmap='gray',vmin=np.percentile(recon2[0],1),vmax=np.percentile(recon2[0],99))
     axs[1].set_title(titles[1])
     plt.tight_layout()
+    return axs, img
