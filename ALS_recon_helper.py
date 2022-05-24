@@ -140,9 +140,11 @@ def astra_fbp_recon(tomo,angles,center=0,fc=None,gpu=False):
     
     if fc:
         N = np.minimum(100,tomo.shape[2])
-        b = signal.firwin(N,fc)
+        lpf = signal.firwin(N,fc) # time domain filter taps
+        _, LPF = np.abs(signal.freqz(lpf,a=1,worN=tomo.shape[2],whole=True)) # freq domain filter
+        tomo = np.real(ifft( fft(tomo, axis=2) * LPF, axis=2)) # apply filter in freq domain
         # tomo = signal.lfilter(b,1,axis=2)
-        tomo = signal.filtfilt(b,1,tomo,axis=2)
+        # tomo = signal.filtfilt(b,1,tomo,axis=2)
     
     if gpu:
         rec = tomopy.recon(tomo, angles,
@@ -156,7 +158,21 @@ def astra_fbp_recon(tomo,angles,center=0,fc=None,gpu=False):
                            options={'method':"FBP", 'proj_type':'linear'})
     return rec
 
-def astra_recon_3d(tomo,angles_or_vectors,vectors=True,algorithm=None):
+def astra_cgls_recon(tomo,angles,center=0,num_iter=20,gpu=False):
+    
+    if gpu:
+        rec = tomopy.recon(tomo, angles,
+                           center=center + tomo.shape[2]/2,
+                           algorithm=tomopy.astra,
+                           options={'method':"CGLS_CUDA", 'proj_type':'cuda', 'num_iter': num_iter})
+    else:
+        rec = tomopy.recon(tomo, angles,
+                           center=center + tomo.shape[2]/2,
+                           algorithm=tomopy.astra,
+                           options={'method':"CGLS", 'proj_type':'linear', 'num_iter': num_iter})
+    return rec
+
+def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=None):
     numslices = tomo.shape[1]
     numrays = tomo.shape[2]
     if vectors: # vectors created with astra_projection_wrapper
@@ -165,26 +181,48 @@ def astra_recon_3d(tomo,angles_or_vectors,vectors=True,algorithm=None):
     else: # just angles, not vectors
         angles = -angles_or_vectors # need to be negative to match tomopy
         proj_geom = astra.create_proj_geom('parallel3d', 1.0, 1.0, numslices, numrays, angles)
+        proj_geom = astra.geom_postalignment(proj_geom, [-center])
     
-    if algorithm == 'CGLS':
-        cfg = astra.astra_dict('CGLS3D_CUDA')
-    else: # FBP
-        # filtered
-        fourier_filter = transform.radon_transform._get_fourier_filter(tomo.shape[2],'None').squeeze()
-        tomo = np.real(ifft( fft(tomo, axis=2) * fourier_filter, axis=2))
-        # backprojection
-        cfg = astra.astra_dict('BP3D_CUDA')
-        
+    # filtered
+    ramp_filter_freq_domain = transform.radon_transform._get_fourier_filter(tomo.shape[2],'None').squeeze()
+    if fc:
+        N = np.minimum(100,tomo.shape[2])
+        lpf = signal.firwin(N,fc) # time domain filter taps
+        _, LPF = np.abs(signal.freqz(lpf,a=1,worN=tomo.shape[2],whole=True)) # zero-phase freq domain filter
+        ramp_filter_freq_domain *= LPF
+    tomo = np.real(ifft( fft(tomo, axis=2) * ramp_filter_freq_domain, axis=2))
+
+    # backprojection
+    cfg = astra.astra_dict('BP3D_CUDA')    
     vol_geom = astra.create_vol_geom(numrays,numrays,numslices)
     rec_id = astra.data3d.create('-vol', vol_geom)
     proj_id = astra.data3d.create('-proj3d', proj_geom, tomo.transpose(1,0,2))
     cfg['ReconstructionDataId'] = rec_id
     cfg['ProjectionDataId'] = proj_id    
     alg_id = astra.algorithm.create(cfg)
-    if algorithm == 'CGLS':
-        astra.algorithm.run(alg_id,20)
-    else:
-        astra.algorithm.run(alg_id)
+    astra.algorithm.run(alg_id)
+    rec = astra.data3d.get(rec_id)
+    return rec
+
+def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,num_iter=20):
+    numslices = tomo.shape[1]
+    numrays = tomo.shape[2]
+    if vectors: # vectors created with astra_projection_wrapper
+        vectors = angles_or_vectors
+        proj_geom = astra.create_proj_geom('parallel3d_vec', numslices, numrays, vectors)
+    else: # just angles, not vectors
+        angles = -angles_or_vectors # need to be negative to match tomopy
+        proj_geom = astra.create_proj_geom('parallel3d', 1.0, 1.0, numslices, numrays, angles)
+        proj_geom = astra.geom_postalignment(proj_geom, [-center])
+    
+    cfg = astra.astra_dict('CGLS3D_CUDA')        
+    vol_geom = astra.create_vol_geom(numrays,numrays,numslices)
+    rec_id = astra.data3d.create('-vol', vol_geom)
+    proj_id = astra.data3d.create('-proj3d', proj_geom, tomo.transpose(1,0,2))
+    cfg['ReconstructionDataId'] = rec_id
+    cfg['ProjectionDataId'] = proj_id    
+    alg_id = astra.algorithm.create(cfg)
+    astra.algorithm.run(alg_id,num_iter)
     rec = astra.data3d.get(rec_id)
     return rec
 
