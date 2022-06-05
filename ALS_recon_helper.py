@@ -326,6 +326,7 @@ def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,fi
     shifted_last_proj = shift_projections(last_proj_flipped, init_cor, yshift=0)
     img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
     axs.set_title(f"COR: 0, y_shift: 0")
+    plt.tight_layout()
 
     slider_dx = widgets.FloatSlider(description='Shift X', min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'))
     slider_dy = widgets.FloatSlider(description='Shift Y', min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'))
