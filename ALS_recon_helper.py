@@ -30,9 +30,21 @@ def check_for_gpu():
 def get_directory_filelist(path,max_num=10000):
     filenamelist = os.listdir(path)
     filenamelist.sort()
+    sorted_file_names = []
     for i in range(len(filenamelist)-1,np.maximum(len(filenamelist)-max_num,-1),-1):
-        print(f'{i}: {filenamelist[i]}')
-    return filenamelist
+        #print(f'{i}: {filenamelist[i]}')
+        sorted_file_names.append(f'{i}: {filenamelist[i]}')
+    return filenamelist, sorted_file_names
+
+def make_file_selector(filelist, names, dataDir):
+    filenumber = widgets.Select(options=names, layout={'width': 'max-content'})
+    def select_file(files):
+        filename = filelist[int(files.split(":")[0])]
+        metadata = read_metadata(dataDir+filename)
+        return dataDir+filename, metadata
+    file_choice = widgets.interactive(select_file, files = filenumber)
+    
+    return file_choice
 
 def read_metadata(path,print_flag=True):
     numslices = int(dxchange.read_hdf5(path, "/measurement/instrument/detector/dimension_y")[0])
@@ -76,6 +88,21 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False, 
     if downsample_factor and downsample_factor!=1:
         tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
     return tomo, angles
+
+
+def basic_reconstructions(path, angles_ind, slices_ind, downsample_factor, cor_search_range, cor_search_step, fc, use_gpu):
+    tomo, angles = als.read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
+    cor_init= als.auto_find_cor(path)
+    cors = np.arange(cor_init-cor_search_range,cor_init+cor_search_range,cor_search_step) 
+    recons = [als.astra_fbp_recon(tomo, angles, center=cor_init/downsample_factor, fc = fc, gpu = use_gpu) for cor in cors]
+    return recons, cors
+
+
+def reconstruction_with_process(path, angles_ind, slices_ind, minimum_transmission, snr, la_size, sm_size, downsample_factor, COR, fc, use_gpu):
+    args = {"minimum_transmission": minimum_transmission, "snr": snr, "la_size": la_size, "sm_size": sm_size}
+    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor, args = args)
+    return astra_fbp_recon(tomo, angles, center=COR/downsample_factor, fc = fc, gpu = use_gpu)
+
 
 # normalize with flat/dark, threshold transmission, and take negative log
 def preprocess_tomo(tomo, args):
@@ -136,9 +163,9 @@ def shift_projections(projs, COR, yshift=0):
         return
     return shifted
 
-def astra_fbp_recon(tomo,angles,center=0,fc=None,gpu=False):
+def astra_fbp_recon(tomo,angles,center=0,fc=1,gpu=False):
     
-    if fc:
+    if fc != 1:
         N = np.minimum(100,tomo.shape[2])
         lpf = signal.firwin(N,fc) # time domain filter taps
         _, LPF = np.abs(signal.freqz(lpf,a=1,worN=tomo.shape[2],whole=True)) # freq domain filter
@@ -172,7 +199,7 @@ def astra_cgls_recon(tomo,angles,center=0,num_iter=20,gpu=False):
                            options={'method':"CGLS", 'proj_type':'linear', 'num_iter': num_iter})
     return rec
 
-def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=None):
+def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=1):
     numslices = tomo.shape[1]
     numrays = tomo.shape[2]
     if vectors: # vectors created with astra_projection_wrapper
@@ -185,7 +212,7 @@ def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=None):
     
     # filtered
     ramp_filter_freq_domain = transform.radon_transform._get_fourier_filter(tomo.shape[2],'None').squeeze()
-    if fc:
+    if fc != 1:
         N = np.minimum(100,tomo.shape[2])
         lpf = signal.firwin(N,fc) # time domain filter taps
         _, LPF = np.abs(signal.freqz(lpf,a=1,worN=tomo.shape[2],whole=True)) # zero-phase freq domain filter
