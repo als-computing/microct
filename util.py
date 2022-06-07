@@ -21,10 +21,12 @@ def get_options(file_choice):
     ########################################################################################################
 
 
-    slices_dict = {"10 Middle Slices": slice(int(np.ceil(file_choice.result[1]["numslices"]/2))-5,int(np.ceil(file_choice.result[1]["numslices"]/2))+5,1),
+    slices_dict = {
+        "Middle Slice": slice(int(np.ceil(file_choice.result[1]["numslices"]/2)),int(np.ceil(file_choice.result[1]["numslices"]/2))+1,1),
+        "10 Middle Slices": slice(int(np.ceil(file_choice.result[1]["numslices"]/2))-5,int(np.ceil(file_choice.result[1]["numslices"]/2))+5,1),
         "20 Middle Slices": slice(int(np.ceil(file_choice.result[1]["numslices"]/2))-10,int(np.ceil(file_choice.result[1]["numslices"]/2))+10,1)
     }
-    slice_options = widgets.Select(options=slices_dict.keys(), value="20 Middle Slices", layout={'width': 'max-content'}, description = "Pick Slices")
+    slice_options = widgets.Select(options=slices_dict.keys(), value="Middle Slice", layout={'width': 'max-content'}, description = "Pick Slices")
 
     def select_slices(slices):
         s = slices_dict[slices]

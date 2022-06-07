@@ -29,6 +29,7 @@ def check_for_gpu():
 
 def get_directory_filelist(path,max_num=10000):
     filenamelist = os.listdir(path)
+    filenamelist = [x for x in filenamelist if os.path.isfile(os.path.join(path,x))]
     filenamelist.sort()
     sorted_file_names = []
     for i in range(len(filenamelist)-1,np.maximum(len(filenamelist)-max_num,-1),-1):
@@ -40,8 +41,8 @@ def make_file_selector(filelist, names, dataDir):
     filenumber = widgets.Select(options=names, layout={'width': 'max-content'})
     def select_file(files):
         filename = filelist[int(files.split(":")[0])]
-        metadata = read_metadata(dataDir+filename)
-        return dataDir+filename, metadata
+        metadata = read_metadata(os.path.join(dataDir,filename))
+        return os.path.join(dataDir,filename), metadata
     file_choice = widgets.interactive(select_file, files = filenumber)
     
     return file_choice
@@ -70,39 +71,24 @@ def read_metadata(path,print_flag=True):
             'kev': kev,
             'angularrange': angularrange}
 
-def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False, args=None):
+def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False, preprocess_settings=None, **kwargs):
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
     tomopy.normalize(tomo, flat, dark, out=tomo)
         # flat = np.asarray([transform.downscale_local_mean(f, (downsample_factor,downsample_factor), cval=0).astype(f.dtype) for f in flat])
         # dark = np.asarray([transform.downscale_local_mean(d, (downsample_factor,downsample_factor), cval=0).astype(d.dtype) for d in dark])
+    if preprocess_settings:
+        tomo = preprocess_tomo(tomo, preprocess_settings)
     if prelog:
         # downsampling pre-log can lead to bright halo in recon with radius = nrays -- may need to mask recon
         if downsample_factor and downsample_factor!=1:
             tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
         return tomo, angles
-    if args:
-        tomo = preprocess_tomo(tomo, args)
     tomopy.minus_log(tomo, out=tomo)
     # downsampling post-log is better
     if downsample_factor and downsample_factor!=1:
         tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
     return tomo, angles
-
-
-def basic_reconstructions(path, angles_ind, slices_ind, downsample_factor, cor_search_range, cor_search_step, fc, use_gpu):
-    tomo, angles = als.read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
-    cor_init= als.auto_find_cor(path)
-    cors = np.arange(cor_init-cor_search_range,cor_init+cor_search_range,cor_search_step) 
-    recons = [als.astra_fbp_recon(tomo, angles, center=cor_init/downsample_factor, fc = fc, gpu = use_gpu) for cor in cors]
-    return recons, cors
-
-
-def reconstruction_with_process(path, angles_ind, slices_ind, minimum_transmission, snr, la_size, sm_size, downsample_factor, COR, fc, use_gpu):
-    args = {"minimum_transmission": minimum_transmission, "snr": snr, "la_size": la_size, "sm_size": sm_size}
-    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor, args = args)
-    return astra_fbp_recon(tomo, angles, center=COR/downsample_factor, fc = fc, gpu = use_gpu)
-
 
 # normalize with flat/dark, threshold transmission, and take negative log
 def preprocess_tomo(tomo, args):
@@ -134,6 +120,23 @@ def preprocess_tomo_orig(tomo, flat, dark,
     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
     return tomo
 
+def cor_search_reconstructions(path, angles_ind, slices_ind, downsample_factor, COR, cor_search_range, cor_search_step, fc, use_gpu):
+    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
+    cors = np.arange(COR-cor_search_range,COR+cor_search_range,cor_search_step)
+    recons = [astra_fbp_recon(tomo, angles, COR=cor/downsample_factor, fc = fc, gpu = use_gpu) for cor in cors]
+    return recons, cors
+
+def basic_reconstruction(path, angles_ind, slices_ind, downsample_factor, COR, fc, use_gpu, **kwargs):
+    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
+    recon = astra_fbp_recon(tomo, angles, COR=COR/downsample_factor, fc = fc, gpu = use_gpu)
+    return recon
+
+def reconstruction_with_process(path, angles_ind, slices_ind, minimum_transmission, snr, la_size, sm_size, downsample_factor, COR, fc, use_gpu):
+    args = {"minimum_transmission": minimum_transmission, "snr": snr, "la_size": la_size, "sm_size": sm_size}
+    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor, args = args)
+    recon = astra_fbp_recon(tomo, angles, COR=COR/downsample_factor, fc = fc, gpu = use_gpu)
+    return recon
+
 def mask_recon(recon,r=None):
     # Need to add this to remove bright halo
     x, y = np.arange(recon.shape[1]), np.arange(recon.shape[2])
@@ -163,7 +166,7 @@ def shift_projections(projs, COR, yshift=0):
         return
     return shifted
 
-def astra_fbp_recon(tomo,angles,center=0,fc=1,gpu=False):
+def astra_fbp_recon(tomo,angles,COR=0,fc=1,gpu=False,**kwargs):
     
     if fc != 1:
         N = np.minimum(100,tomo.shape[2])
@@ -175,31 +178,31 @@ def astra_fbp_recon(tomo,angles,center=0,fc=1,gpu=False):
     
     if gpu:
         rec = tomopy.recon(tomo, angles,
-                           center=center + tomo.shape[2]/2,
+                           center=COR + tomo.shape[2]/2,
                            algorithm=tomopy.astra,
                            options={'method':"FBP_CUDA", 'proj_type':'cuda'})
     else:
         rec = tomopy.recon(tomo, angles,
-                           center=center + tomo.shape[2]/2,
+                           center=COR + tomo.shape[2]/2,
                            algorithm=tomopy.astra,
                            options={'method':"FBP", 'proj_type':'linear'})
     return rec
 
-def astra_cgls_recon(tomo,angles,center=0,num_iter=20,gpu=False):
+def astra_cgls_recon(tomo,angles,COR=0,num_iter=20,gpu=False,**kwargs):
     
     if gpu:
         rec = tomopy.recon(tomo, angles,
-                           center=center + tomo.shape[2]/2,
+                           center=COR + tomo.shape[2]/2,
                            algorithm=tomopy.astra,
                            options={'method':"CGLS_CUDA", 'proj_type':'cuda', 'num_iter': num_iter})
     else:
         rec = tomopy.recon(tomo, angles,
-                           center=center + tomo.shape[2]/2,
+                           center=COR + tomo.shape[2]/2,
                            algorithm=tomopy.astra,
                            options={'method':"CGLS", 'proj_type':'linear', 'num_iter': num_iter})
     return rec
 
-def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=1):
+def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,fc=1):
     numslices = tomo.shape[1]
     numrays = tomo.shape[2]
     if vectors: # vectors created with astra_projection_wrapper
@@ -208,7 +211,7 @@ def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=1):
     else: # just angles, not vectors
         angles = -angles_or_vectors # need to be negative to match tomopy
         proj_geom = astra.create_proj_geom('parallel3d', 1.0, 1.0, numslices, numrays, angles)
-        proj_geom = astra.geom_postalignment(proj_geom, [-center])
+        proj_geom = astra.geom_postalignment(proj_geom, [-COR])
     
     # filtered
     ramp_filter_freq_domain = transform.radon_transform._get_fourier_filter(tomo.shape[2],'None').squeeze()
@@ -231,7 +234,7 @@ def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,fc=1):
     rec = astra.data3d.get(rec_id)
     return rec
 
-def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,num_iter=20):
+def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,num_iter=20):
     numslices = tomo.shape[1]
     numrays = tomo.shape[2]
     if vectors: # vectors created with astra_projection_wrapper
@@ -240,7 +243,7 @@ def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,num_iter=2
     else: # just angles, not vectors
         angles = -angles_or_vectors # need to be negative to match tomopy
         proj_geom = astra.create_proj_geom('parallel3d', 1.0, 1.0, numslices, numrays, angles)
-        proj_geom = astra.geom_postalignment(proj_geom, [-center])
+        proj_geom = astra.geom_postalignment(proj_geom, [-COR])
     
     cfg = astra.astra_dict('CGLS3D_CUDA')        
     vol_geom = astra.create_vol_geom(numrays,numrays,numslices)
@@ -252,6 +255,34 @@ def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,center=0,num_iter=2
     astra.algorithm.run(alg_id,num_iter)
     rec = astra.data3d.get(rec_id)
     return rec
+
+def svmbir_recon(tomo,angles,COR=0,downsample_factor=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None):
+    if init_image is None:
+        init_image = astra_fbp_recon(tomo,angles,COR=COR/downsample_factor,fc=0.5,gpu=check_for_gpu())
+    tomo = shift_projections(tomo,COR/downsample_factor) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
+    recon = svmbir.recon(tomo,angles,
+                              center_offset=0.0, # MUST BE ZERO TO AVOID VERY LONG COMPUTATION OF SYSTEM MATRIX
+                              init_image=init_image, # init with fbp for faster convergence
+                              T=T, q=q, p=p, sharpness=sharpness, snr_db=snr_dB,
+                              positivity=False, # must be False due to phase contrast in ALS data
+                              num_threads=128,  
+                              max_iterations=max_iter,
+                              svmbir_lib_path=get_svmbir_cache_dir(), # must have access to this directory
+                              verbose=1) # 0, 1 or 2
+    recon = recon.transpose(0,2,1) # to match tomopy format
+    return recon
+      
+def svmbir_fbp(tomo,angles,cor=0,num_threads=None):   
+    fourier_filter = transform.radon_transform._get_fourier_filter(tomo.shape[2],'ramp').squeeze()
+    filtered_tomo = np.real(ifft( fft(tomo, axis=2) * fourier_filter, axis=2))
+    rec = svmbir.backproject(filtered_tomo, angles,
+                             geometry='parallel',
+                             center_offset=cor,
+                             num_threads=num_threads,
+                             svmbir_lib_path=get_svmbir_cache_dir(),
+                             verbose=False)
+    return rec
+   
 
 def cache_svmbir_projector(img_size,num_angles,num_threads=None):
 
@@ -267,17 +298,6 @@ def cache_svmbir_projector(img_size,num_angles,num_threads=None):
         t = time.time() - t0
         print(f"Finisehd: time={t}")    
         
-def svmbir_fbp(tomo,angles,cor=0,num_threads=None):   
-    fourier_filter = transform.radon_transform._get_fourier_filter(tomo.shape[2],'ramp').squeeze()
-    filtered_tomo = np.real(ifft( fft(tomo, axis=2) * fourier_filter, axis=2))
-    rec = svmbir.backproject(filtered_tomo, angles,
-                             geometry='parallel',
-                             center_offset=cor,
-                             num_threads=num_threads,
-                             svmbir_lib_path=get_svmbir_cache_dir(),
-                             verbose=False)
-    return rec
-   
 def get_svmbir_cache_dir():
     return '//global/cfs/cdirs/als/users/tomography_notebooks/svmbir_cache'
     # s = os.popen("echo $NERSC_HOST")
@@ -288,7 +308,10 @@ def get_svmbir_cache_dir():
     #     return '/pscratch/sd/d/dperl/svmbir_cache'
     # else:
     #     sys.exit('not or cori or perlmutter -- throwing error')
-    
+
+def get_scratch_path():
+    return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
+
 
 def plot_recon(recon,fignum=1,figsize=4,clims=None):
     if clims is None:
@@ -296,13 +319,31 @@ def plot_recon(recon,fignum=1,figsize=4,clims=None):
     if plt.fignum_exists(fignum): plt.close(fignum)
     fig = plt.figure(num=fignum,figsize=(figsize, figsize))
     axs = plt.gca()
-    img = axs.imshow(recon[0],cmap='gray',vmin=clims[0],vmax=clims[1])    
+    img = axs.imshow(recon[0],cmap='gray')    
     clim_slider = widgets.interactive(set_clim, img=widgets.fixed(img),
                                       clims=widgets.FloatRangeSlider(description='Color Scale', layout=widgets.Layout(width='50%'),
                                                                            min=recon.min(), max=recon.max(),
-                                                                           step=(recon.max()-recon.min())/500, value=img.get_clim()))
+                                                                           step=(recon.max()-recon.min())/500, value=clims))
 
     return img, axs, clim_slider
+
+def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
+    if plt.fignum_exists(fignum): plt.close(fignum)
+    fig, axs = plt.subplots(1,2,num=fignum,figsize=(2*figsize,figsize),sharex=True,sharey=True)
+    img = [None, None]
+    img[0] = axs[0].imshow(recon1[0],cmap='gray')
+    axs[0].set_title(titles[0])
+    img[1] = axs[1].imshow(recon2[0],cmap='gray')
+    axs[1].set_title(titles[1])
+    plt.tight_layout()
+   
+    recon = np.concatenate((recon1,recon2))
+    clims = [np.percentile(recon[0],1), np.percentile(recon[0],99)]
+    clim_slider = widgets.interactive(set_clim, img=widgets.fixed(img),
+                                  clims=widgets.FloatRangeSlider(description='Color Scale', layout=widgets.Layout(width='50%'),
+                                                                       min=recon.min(), max=recon.max(),
+                                                                       step=(recon.max()-recon.min())/500, value=clims))
+    return axs, img, clim_slider
 
 def set_cor(i,img,axs,recons,cors):
     img.set_data(recons[i][0])
@@ -316,11 +357,14 @@ def set_slice(slice_num,img,axs,recon,slices):
         ax.set_title(f"Slice {slices[slice_num]}")
 
 def set_clim(img,clims):
-    img.set_clim(vmin=clims[0],vmax=clims[1])        
+    if not isinstance(img, list):
+        img = [img]
+    for im in img:
+        im.set_clim(vmin=clims[0],vmax=clims[1])        
     
-def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,figsize=4):
+def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1):
     if plt.fignum_exists(num=fignum): plt.close(fignum)
-    fig, axs = plt.subplots(figsize=(figsize,figsize), constrained_layout=True, num=fignum)
+    fig, axs = plt.subplots(num=fignum)
     fig.canvas.toolbar_position = 'right'
     fig.canvas.header_visible = False
     shifted_last_proj = shift_projections(last_proj_flipped, init_cor, yshift=0)
@@ -328,8 +372,8 @@ def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,fi
     axs.set_title(f"COR: 0, y_shift: 0")
     plt.tight_layout()
 
-    slider_dx = widgets.FloatSlider(description='Shift X', min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'))
-    slider_dy = widgets.FloatSlider(description='Shift Y', min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'))
+    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'))
+    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'))
     ui = widgets.VBox([slider_dx, slider_dy])
     sliders = widgets.interactive_output(shift_proj,{'dx':slider_dx,'dy':slider_dy,
                                                      'img':widgets.fixed(img),'axs':widgets.fixed(axs),
@@ -341,14 +385,3 @@ def shift_proj(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_factor=1):
     shifted_last_proj = shift_projections(last_proj_flipped, dx, yshift=dy)
     img.set_data(first_proj - shifted_last_proj)
     axs.set_title(f"COR: {-downsample_factor*dx/2}, y_shift: {downsample_factor*dy/2}")
-    
-def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
-    if plt.fignum_exists(fignum): plt.close(fignum)
-    fig, axs = plt.subplots(1,2,num=fignum,figsize=(2*figsize,figsize),sharex=True,sharey=True)
-    img = [None, None]
-    img[0] = axs[0].imshow(recon1[0],cmap='gray',vmin=np.percentile(recon1[0],1),vmax=np.percentile(recon1[0],99))
-    axs[0].set_title(titles[0])
-    img[1] = axs[1].imshow(recon2[0],cmap='gray',vmin=np.percentile(recon2[0],1),vmax=np.percentile(recon2[0],99))
-    axs[1].set_title(titles[1])
-    plt.tight_layout()
-    return axs, img
