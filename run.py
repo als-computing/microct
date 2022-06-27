@@ -31,8 +31,8 @@ def main():
                              downsample_factor=settings["downsample_factor"])
  
     recon = als.astra_fbp_recon(tomo, angles, **settings)
-    fname = d["name"]
-    dxchange.write_tiff(recon, fname = fname)    
+    fname = settings["name"]
+    dxchange.write_tiff_stack(recon, fname = fname)    
     
     
 if __name__ == '__main__':
