@@ -12,28 +12,34 @@ import tomopy
 import astra
 import svmbir
 import dxchange
-
+from pathlib import Path
+import pandas as pd
+import copy
+import pickle
+import base64
 """
 Functions are in rough order of when they are called in notebook
 Need to add comments
 """
 
-def check_for_gpu():
+def check_for_gpu(verbose = False):
     try:
         subprocess.check_output('nvidia-smi')
-        print('Nvidia GPU detected, will use to reconstruct!')
+        if verbose:
+            print('Nvidia GPU detected, will use to reconstruct!')
         return True
     except Exception: # if command not found, cant talk to GPU (or doesnt exists)
         print('No Nvidia GPU in system, will use CPU')
         return False
 
-def get_directory_filelist(path,max_num=10000):
+def get_directory_filelist(path,max_num=10000, verbose = False):
     filenamelist = os.listdir(path)
     filenamelist = [x for x in filenamelist if os.path.isfile(os.path.join(path,x))]
     filenamelist.sort()
     sorted_file_names = []
     for i in range(len(filenamelist)-1,np.maximum(len(filenamelist)-max_num,-1),-1):
-        #print(f'{i}: {filenamelist[i]}')
+        if verbose:
+            print(f'{i}: {filenamelist[i]}')
         sorted_file_names.append(f'{i}: {filenamelist[i]}')
     return filenamelist, sorted_file_names
 
@@ -120,7 +126,7 @@ def preprocess_tomo_orig(tomo, flat, dark,
     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
     return tomo
 
-def cor_search_reconstructions(path, angles_ind, slices_ind, downsample_factor, COR, cor_search_range, cor_search_step, fc, use_gpu):
+def cor_search_reconstructions(path, name, angles_ind, slices_ind, downsample_factor, COR, cor_search_range, cor_search_step, fc, use_gpu):
     tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
     cors = np.arange(COR-cor_search_range,COR+cor_search_range,cor_search_step)
     recons = [astra_fbp_recon(tomo, angles, COR=cor/downsample_factor, fc = fc, gpu = use_gpu) for cor in cors]
@@ -385,3 +391,54 @@ def shift_proj(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_factor=1):
     shifted_last_proj = shift_projections(last_proj_flipped, dx, yshift=dy)
     img.set_data(first_proj - shifted_last_proj)
     axs.set_title(f"COR: {-downsample_factor*dx/2}, y_shift: {downsample_factor*dy/2}")
+    
+    
+    
+def make_settings_dict(n, basepath, settings):
+    '''
+    Inputs:
+    name: string, filename
+    settings: one dictionary of base settings
+    
+    Returns: 
+    d: dictionary with updated path and filename
+    '''
+    d = settings.copy()
+    d["path"] = basepath/n
+    d["name"] = n
+    return d
+
+
+def view_dictionaries(l):
+    '''
+    Input: 
+    l: list of prepared dictionaries
+    Returns 
+    df: a dataframe of dictionaries for easy viewing.
+    '''
+    df = pd.DataFrame(l)
+    return df.T
+
+def dictionary_prep(dictionary):
+    '''
+    Input: 
+    dictionary: single dictionary of settings
+    Returns 
+    st: encoded dictionary
+    '''
+    pik = pickle.dumps(dictionary, protocol=pickle.HIGHEST_PROTOCOL)
+    st = base64.b64encode(pik).decode('utf-8')
+    return st
+
+
+def make_dict_with_settings_and_preprocess(settings, preprocess_settings):
+    '''
+    Input: 
+    dictionary: single dictionary of settings
+    Returns 
+    st: encoded dictionary
+    '''
+    both = {}
+    both["settings"] = copy.deepcopy(settings)
+    both["preprocess"] = copy.deepcopy(preprocess_settings)
+    return both

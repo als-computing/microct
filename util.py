@@ -1,7 +1,15 @@
 import ipywidgets as widgets
 import numpy as np
 layout = widgets.Layout(width='auto', height='40px')
+
+
+
 def get_options(file_choice):
+    '''
+    This is probably the worst function ever written but...
+    
+    
+    '''
     all_parameter_widgets = [widgets.Label(value='Pick Parameters')]
 
     angles_dict = {"Every Angle Increment": None, 
