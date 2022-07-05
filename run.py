@@ -31,7 +31,7 @@ def main():
                              downsample_factor=settings["downsample_factor"])
  
     recon = als.astra_fbp_recon(tomo, angles, **settings)
-    fname = settings["name"]
+    fname = "reconstruction_" + settings["name"]
     dxchange.write_tiff_stack(recon, fname = fname)    
     
     
