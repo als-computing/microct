@@ -1,5 +1,5 @@
 #This needs to be changed to the filepath where the configs are located.
-FILEPATH="/pscratch/sd/l/lgupta/als_microct-recon/configs/*"
+FILEPATH="/pscratch/sd/d/dperl/tomo_data/test/configs/*"
 
 for f in $FILEPATH
 do

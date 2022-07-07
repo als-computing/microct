@@ -1,18 +1,14 @@
 #!/bin/bash
-#SBATCH -q debug
-#SBATCH -A nstaff_g
+#SBATCH -q regular
+#SBATCH -A als_g
+#SBATCH --image=dperl/tomocam:latest
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -C gpu
 #SBATCH -c 64
 #SBATCH -G 4
 #SBATCH --time=00:30:00
-#SBATCH -J tomopy
+#SBATCH -J tomo832
 #SBATCH --exclusive
 
 export NUMEXPR_MAX_THREADS=999
-module load python
-module load cudatoolkit
-source activate tomopy_als
-
-python /pscratch/sd/l/lgupta/als_microct-recon/run.py 

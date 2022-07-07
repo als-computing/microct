@@ -126,21 +126,12 @@ def preprocess_tomo_orig(tomo, flat, dark,
     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
     return tomo
 
-def cor_search_reconstructions(path, name, angles_ind, slices_ind, downsample_factor, COR, cor_search_range, cor_search_step, fc, use_gpu):
-    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
-    cors = np.arange(COR-cor_search_range,COR+cor_search_range,cor_search_step)
-    recons = [astra_fbp_recon(tomo, angles, COR=cor/downsample_factor, fc = fc, gpu = use_gpu) for cor in cors]
-    return recons, cors
-
-def basic_reconstruction(path, angles_ind, slices_ind, downsample_factor, COR, fc, use_gpu, **kwargs):
-    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor)
-    recon = astra_fbp_recon(tomo, angles, COR=COR/downsample_factor, fc = fc, gpu = use_gpu)
-    return recon
-
-def reconstruction_with_process(path, angles_ind, slices_ind, minimum_transmission, snr, la_size, sm_size, downsample_factor, COR, fc, use_gpu):
-    args = {"minimum_transmission": minimum_transmission, "snr": snr, "la_size": la_size, "sm_size": sm_size}
-    tomo, angles = read_data(path, proj = angles_ind, sino = slices_ind, downsample_factor = downsample_factor, args = args)
-    recon = astra_fbp_recon(tomo, angles, COR=COR/downsample_factor, fc = fc, gpu = use_gpu)
+def default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, use_gpu):
+    """
+    This is what ALS_recon notebook calls
+    """
+    tomo, angles = read_data(path, proj=angles_ind, sino=slices_ind, downsample_factor=proj_downsample, preprocess_settings=preprocessing_args)
+    recon = astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
     return recon
 
 def mask_recon(recon,r=None):
@@ -351,16 +342,9 @@ def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
                                                                        step=(recon.max()-recon.min())/500, value=clims))
     return axs, img, clim_slider
 
-def set_cor(i,img,axs,recons,cors):
-    img.set_data(recons[i][0])
-    axs.set_title(f"COR = {cors[i]} pixels (at full res)")
-    
-def set_slice(slice_num,img,axs,recon,slices):
-    if not isinstance(axs,list): axs = [axs] 
-    if not isinstance(img,list): img = [img]
-    for ax,im in zip(axs,img):
-        im.set_data(recon[slice_num])
-        ax.set_title(f"Slice {slices[slice_num]}")
+def set_proj(img,path,proj_num):
+    tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None)
+    img.set_data(tomo.squeeze())        
 
 def set_clim(img,clims):
     if not isinstance(img, list):
@@ -391,54 +375,3 @@ def shift_proj(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_factor=1):
     shifted_last_proj = shift_projections(last_proj_flipped, dx, yshift=dy)
     img.set_data(first_proj - shifted_last_proj)
     axs.set_title(f"COR: {-downsample_factor*dx/2}, y_shift: {downsample_factor*dy/2}")
-    
-    
-    
-def make_settings_dict(n, basepath, settings):
-    '''
-    Inputs:
-    name: string, filename
-    settings: one dictionary of base settings
-    
-    Returns: 
-    d: dictionary with updated path and filename
-    '''
-    d = settings.copy()
-    d["path"] = basepath/n
-    d["name"] = n
-    return d
-
-
-def view_dictionaries(l):
-    '''
-    Input: 
-    l: list of prepared dictionaries
-    Returns 
-    df: a dataframe of dictionaries for easy viewing.
-    '''
-    df = pd.DataFrame(l)
-    return df.T
-
-def dictionary_prep(dictionary):
-    '''
-    Input: 
-    dictionary: single dictionary of settings
-    Returns 
-    st: encoded dictionary
-    '''
-    pik = pickle.dumps(dictionary, protocol=pickle.HIGHEST_PROTOCOL)
-    st = base64.b64encode(pik).decode('utf-8')
-    return st
-
-
-def make_dict_with_settings_and_preprocess(settings, preprocess_settings):
-    '''
-    Input: 
-    dictionary: single dictionary of settings
-    Returns 
-    st: encoded dictionary
-    '''
-    both = {}
-    both["settings"] = copy.deepcopy(settings)
-    both["preprocess"] = copy.deepcopy(preprocess_settings)
-    return both

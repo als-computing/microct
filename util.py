@@ -1,126 +1,127 @@
-import ipywidgets as widgets
 import numpy as np
-layout = widgets.Layout(width='auto', height='40px')
+import ipywidgets as widgets
+import ALS_recon_helper as als
 
 
-
-def get_options(file_choice):
-    '''
-    This is probably the worst function ever written but...
+def show_slice_reconstruction(path, slice_num,
+                              proj_downsample, angles_downsample,
+                              COR, fc,
+                              minimum_transmission, snr, la_size, sm_size,
+                              use_gpu,
+                              img_handle,
+                              hline_handle
+                            ):
     
-    
-    '''
-    all_parameter_widgets = [widgets.Label(value='Pick Parameters')]
+    slices_ind = slice(slice_num,slice_num+1,1)
+    angles_ind = slice(0,-1,angles_downsample)
+    preprocessing_args = {"minimum_transmission": minimum_transmission, "snr": snr, "la_size": la_size, "sm_size": sm_size}
+    recon = als.default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, use_gpu)
+    img_handle.set_data(recon.squeeze())
+    hline_handle.set_ydata([slice_num,slice_num])
 
-    angles_dict = {"Every Angle Increment": None, 
-                   "Every 2nd Angle Increment": slice(0,-1,2),
-                   "Every 10th Angle Increment": slice(0,-1,10),
-                   "Every 20th Angle Increment": slice(0,-1,20)
-    }
-    angle_options = widgets.Select(options=angles_dict.keys(), layout={'width': 'max-content'})
-
-    def select_angles(angles):
-        ang = angles_dict[angles]
-        print("Selected:", angles)
-        return ang
-
-    angles_choice = widgets.interactive(select_angles, angles = angle_options, description = "Pick Angles")
-    all_parameter_widgets.append(angles_choice)
-    ########################################################################################################
-
-
-    slices_dict = {
-        "Middle Slice": slice(int(np.ceil(file_choice.result[1]["numslices"]/2)),int(np.ceil(file_choice.result[1]["numslices"]/2))+1,1),
-        "10 Middle Slices": slice(int(np.ceil(file_choice.result[1]["numslices"]/2))-5,int(np.ceil(file_choice.result[1]["numslices"]/2))+5,1),
-        "20 Middle Slices": slice(int(np.ceil(file_choice.result[1]["numslices"]/2))-10,int(np.ceil(file_choice.result[1]["numslices"]/2))+10,1)
-    }
-    slice_options = widgets.Select(options=slices_dict.keys(), value="Middle Slice", layout={'width': 'max-content'}, description = "Pick Slices")
-
-    def select_slices(slices):
-        s = slices_dict[slices]
-        print("Selected:", slices)
-        return s
-
-    slices_choice = widgets.interactive(select_slices, slices = slice_options, display='flex',
-        flex_flow='column',
-        align_items='stretch', 
-        layout = layout, style={'description_width': 'initial'})
-    all_parameter_widgets.append(slices_choice)
-    ########################################################################################################
-
-
-    downsamp = widgets.BoundedIntText(
-        value=2,
-        min=1,
-        max=100,
-        description='Downsample Factor:', style={'description_width': 'initial'}
-    )
-
-    def enter_downsample_factor(factor):
-        print("Downsampling by: ", factor)
-        return factor
-
-    downsamp_choice = widgets.interactive(enter_downsample_factor, factor = downsamp, flex_flow='column',
-        align_items='stretch', 
-        layout = layout, style={'description_width': 'initial'})
-    all_parameter_widgets.append(downsamp_choice)
-    ########################################################################################################
-
-    cor_range = widgets.BoundedIntText(
-        value=10,
-        min=1,
-        max=100,
-        description='Center of Rotation Search Range:', style={'description_width': 'initial'}
-    )
-
-    def enter_corsearch_factor(factor):
-        print("Center of Rotation Search Range chosen: ", factor)
-        return factor
-
-    corsearch_choice = widgets.interactive(enter_corsearch_factor, factor = cor_range, flex_flow='column',
-        align_items='stretch', 
-        layout = layout, style={'description_width': 'initial'})
-
-    all_parameter_widgets.append(corsearch_choice)
-    ########################################################################################################
-
-    cor_step = widgets.BoundedFloatText(
-        value=0.5,
-        min=0.25,
-        max=5,
-        step = 0.05,
-        description='Center of Rotation Search Step size:', style={'description_width': 'initial'}
-    )
-
-    def enter_corstep_factor(factor):
-        print("Center of Rotation Search Range chosen: ", factor)
-        return factor
-
-    corstep_choice = widgets.interactive(enter_corstep_factor, factor = cor_step, flex_flow='column',
-        align_items='stretch', 
-        layout = layout, style={'description_width': 'initial'})
-
-
-    all_parameter_widgets.append(corstep_choice)
-    ########################################################################################################
-
-    fc = widgets.BoundedFloatText(
+def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,hline_handle,label):
+    """
+        Create widgets for every parameter, then put into interactive_widgets box
+    """
+    ################## Label ##################################    
+    all_parameter_widgets = [widgets.Label(value=label,layout=widgets.Layout(justify_content="center"))]
+    ################## Angle downsample ##################################    
+    angle_downsample_widget = widgets.Dropdown(
+        options=[("Every Angle",1), ("Every 2nd Angle",2), ("Every 4th Angle",4), ("Every 8th Angle",8)],
         value=1,
-        min=0,
-        max=1,
-        step = 0.001,
-        description='Filter Cutoff (0 - 1, 1 is no filtering):', style={'description_width': 'initial'}
+        description='Angle Downsampling:',
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
 
-    def enter_fc_factor(factor):
-        print("Filter cutoff chosen: ", factor)
-        return factor
+    all_parameter_widgets.append(angle_downsample_widget)
+    ################## Projection downsample ##################################    
+    proj_downsample_widget = widgets.Dropdown(
+        options=[("Full res",1), ("2x downsample",2), ("4x downsample",4), ("8x downsample",8)],
+        value=1,
+        description='Projection Downsampling:',
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
+    )
 
-    fc_choice = widgets.interactive(enter_fc_factor, factor = fc, flex_flow='column',
-        align_items='stretch', 
-        layout = layout, style={'description_width': 'initial'})
+    all_parameter_widgets.append(proj_downsample_widget)
+    ################## filter cutoff ##################################    
+    fc_widget = widgets.BoundedFloatText(
+        value=1,
+        min=0.01,
+        max=1,
+        step = 0.01,
+        description='Filter Cutoff (0.01 - 1, 1 is no filtering):',
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
+    )
 
+    all_parameter_widgets.append(fc_widget)
+    ################## COR ##################################    
+    cor_widget = widgets.FloatSlider(description='COR', layout=widgets.Layout(width='100%'),
+                                    min=cor_init - 10,
+                                    max=cor_init + 10,
+                                    step=0.25,
+                                    value=cor_init)
 
-    all_parameter_widgets.append(fc_choice)
+    all_parameter_widgets.append(cor_widget)
+    ################## Minimum transmission ##################################    
+    minTranmission_widget = widgets.BoundedFloatText(description='Min Trans:', layout=widgets.Layout(width='70%'),
+                                    min=0.,
+                                    max=1.,
+                                    step=0.01,
+                                    value=0,
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
+    )
+    all_parameter_widgets.append(minTranmission_widget)
+    ################## Small size (ring removal) ##################################    
+    small_size_widget = widgets.BoundedIntText(description='Small Ring Size:', layout=widgets.Layout(width='50%'),
+                                    min=1,
+                                    max=31,
+                                    step=2,
+                                    value=11,
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
+    )                                               
+
+    all_parameter_widgets.append(small_size_widget)
+    ################## Large size (ring removal) ##################################    
+    large_size_widget = widgets.BoundedIntText(description='Large Ring Size:', layout=widgets.Layout(width='50%'),
+                                    min=1,
+                                    max=101,
+                                    step=2,
+                                    value=1,
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
+    )
+    all_parameter_widgets.append(large_size_widget)
+    ################## SNR (ring removal) ##################################    
+    snr_widget = widgets.BoundedIntText(description='SNR:', layout=widgets.Layout(width='50%'),
+                                    min=1.1,
+                                    max=3,
+                                    step=0.1,
+                                    value=3,
+        style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
+    )
+    all_parameter_widgets.append(snr_widget)
+    ################## Slice number ##################################    
+    slice_num_widget = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+                                         min=0,
+                                         max=metadata['numslices']-1,
+                                         value=metadata['numslices']//2)
+    
+    all_parameter_widgets.append(slice_num_widget) 
     ########################################################################################################
-    return all_parameter_widgets
+    out = widgets.interactive_output(show_slice_reconstruction,
+                            {'path': widgets.fixed(path),
+                             'slice_num': slice_num_widget,
+                             'angles_downsample': angle_downsample_widget,
+                             'proj_downsample': proj_downsample_widget,
+                             'COR': cor_widget,
+                             'fc': fc_widget,
+                             'minimum_transmission': minTranmission_widget,
+                             'sm_size': small_size_widget,
+                             'la_size': large_size_widget,
+                             'snr': snr_widget,
+                             'use_gpu': widgets.fixed(use_gpu),
+                             'img_handle': widgets.fixed(img_handle),
+                             'hline_handle': widgets.fixed(hline_handle)
+                            }
+                           )
+    
+    return all_parameter_widgets, out
