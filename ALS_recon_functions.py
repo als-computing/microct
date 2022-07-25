@@ -301,13 +301,15 @@ def get_svmbir_cache_dir():
 def get_scratch_path():
     return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
 
-def get_batch_template():
+def get_batch_template(algorithm="astra"):
+    if algorithm == "svmbir":
+        return 'svmbir_template_job.txt'
     s = os.popen("echo $NERSC_HOST")
     out = s.read()
     if 'cori' in out:
-        return 'template_job-cori.txt'
+        return 'astra_template_job-cori.txt'
     elif 'perlmutter' in out:
-        return 'template_job-perlmutter.txt'
+        return 'astra_template_job-perlmutter.txt'
     else:
         sys.exit('not on cori or perlmutter -- throwing error')
 

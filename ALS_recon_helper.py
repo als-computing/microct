@@ -5,10 +5,11 @@ import ALS_recon_functions as als
 
 def default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, use_gpu):
     """
-    This is what ALS_recon notebook calls
+    This is what ALS_recon notebook calls -- can use fbp, cgls, or something else
     """
     tomo, angles = als.read_data(path, proj=angles_ind, sino=slices_ind, downsample_factor=proj_downsample, preprocess_settings=preprocessing_args)
     recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
+    # recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
     return recon
 
 
