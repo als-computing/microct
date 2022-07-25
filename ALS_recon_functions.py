@@ -126,14 +126,6 @@ def preprocess_tomo_orig(tomo, flat, dark,
     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
     return tomo
 
-def default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, use_gpu):
-    """
-    This is what ALS_recon notebook calls
-    """
-    tomo, angles = read_data(path, proj=angles_ind, sino=slices_ind, downsample_factor=proj_downsample, preprocess_settings=preprocessing_args)
-    recon = astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
-    return recon
-
 def mask_recon(recon,r=None):
     # Need to add this to remove bright halo
     x, y = np.arange(recon.shape[1]), np.arange(recon.shape[2])
@@ -309,6 +301,16 @@ def get_svmbir_cache_dir():
 def get_scratch_path():
     return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
 
+def get_batch_template():
+    s = os.popen("echo $NERSC_HOST")
+    out = s.read()
+    if 'cori' in out:
+        return 'template_job-cori.txt'
+    elif 'perlmutter' in out:
+        return 'template_job-perlmutter.txt'
+    else:
+        sys.exit('not on cori or perlmutter -- throwing error')
+
 
 def plot_recon(recon,fignum=1,figsize=4,clims=None):
     if clims is None:
@@ -343,31 +345,40 @@ def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
     return axs, img, clim_slider
 
 def set_proj(img,path,proj_num):
-    tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None)
-    img.set_data(tomo.squeeze())        
-
+    tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None, prelog=True)
+    if not isinstance(img, list):
+        img = [img]
+    for im in img:
+        im.set_data(tomo.squeeze())        
+    
 def set_clim(img,clims):
     if not isinstance(img, list):
         img = [img]
     for im in img:
         im.set_clim(vmin=clims[0],vmax=clims[1])        
     
-def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1):
+def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,yshift=False):
     if plt.fignum_exists(num=fignum): plt.close(fignum)
     fig, axs = plt.subplots(num=fignum)
     fig.canvas.toolbar_position = 'right'
     fig.canvas.header_visible = False
     shifted_last_proj = shift_projections(last_proj_flipped, init_cor, yshift=0)
     img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
-    axs.set_title(f"COR: 0, y_shift: 0")
     plt.tight_layout()
 
     slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'))
     slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'))
-    ui = widgets.VBox([slider_dx, slider_dy])
+    # only show yshift slider if flag is True
+    if yshift:
+        ui = widgets.VBox([slider_dx, slider_dy])
+        axs.set_title(f"COR: 0, y_shift: 0")
+    else:
+        ui = widgets.VBox([slider_dx])
+        axs.set_title(f"COR: 0")
+
     sliders = widgets.interactive_output(shift_proj,{'dx':slider_dx,'dy':slider_dy,
-                                                     'img':widgets.fixed(img),'axs':widgets.fixed(axs),
-                                                     'first_proj':widgets.fixed(first_proj),'last_proj_flipped':widgets.fixed(last_proj_flipped)})
+                                         'img':widgets.fixed(img),'axs':widgets.fixed(axs),
+                                         'first_proj':widgets.fixed(first_proj),'last_proj_flipped':widgets.fixed(last_proj_flipped)})
     
     return axs, img, ui, sliders
 
