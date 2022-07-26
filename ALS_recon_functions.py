@@ -77,14 +77,14 @@ def read_metadata(path,print_flag=True):
             'kev': kev,
             'angularrange': angularrange}
 
-def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False, preprocess_settings=None, **kwargs):
+def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
+              preprocess_settings=None, postprocess_settings=None, **kwargs):
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
     tomopy.normalize(tomo, flat, dark, out=tomo)
-        # flat = np.asarray([transform.downscale_local_mean(f, (downsample_factor,downsample_factor), cval=0).astype(f.dtype) for f in flat])
-        # dark = np.asarray([transform.downscale_local_mean(d, (downsample_factor,downsample_factor), cval=0).astype(d.dtype) for d in dark])
+
     if preprocess_settings:
-        tomo = preprocess_tomo(tomo, preprocess_settings)
+        tomo = prelog_process_tomo(tomo, preprocess_settings)
     if prelog:
         # downsampling pre-log can lead to bright halo in recon with radius = nrays -- may need to mask recon
         if downsample_factor and downsample_factor!=1:
@@ -94,16 +94,37 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False, 
     # downsampling post-log is better
     if downsample_factor and downsample_factor!=1:
         tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
+    if postprocess_settings: # putting after downsample for efficiency, but could put before too 
+        tomo = postlog_process_tomo(tomo, postprocess_settings)
     return tomo, angles
 
-# normalize with flat/dark, threshold transmission, and take negative log
-def preprocess_tomo(tomo, args):
-    # sarepy remove stripes
-    tomo = tomopy.remove_all_stripe(tomo,snr=args['snr'], la_size=args['la_size'], sm_size=args['sm_size'])
+def prelog_process_tomo(tomo, args):
     # threshold low measurements
-    if args['minimum_transmission']:
+    if 'minimum_transmission' in args and args['minimum_transmission']:
         tomo[tomo < args['minimum_transmission'] ] = args['minimum_transmission']
 
+    # sarepy ring removal (combo of 3 methods, see: https://sarepy.readthedocs.io/toc/section3_1/section3_1_6.html)
+    # "small stripe" method relies on median filter along angle dimension (after sorting) 
+    if 'sm_size' in args and args['sm_size']:
+        tomo = tomopy.remove_all_stripe(tomo,snr=args['snr'], la_size=args['la_size'], sm_size=args['sm_size'])
+
+    # 1D median filter along angle dimension, to remove outliers 
+    if 'outlier_diff_1D' in args and args['outlier_diff_1D']:
+        # currently hardcoded to filter along
+        tomopy.misc.corr.remove_outlier1d(tomo, args['outlier_diff_1D'], size=args['outlier_size_1D'], axis=0, out=tomo)
+        
+    # 2D median filter on each projection (ie, perpendicular to angle), to remove outliers 
+    if 'outlier_diff_2D' in args and args['outlier_diff_2D']:
+        # currently hardcoded to filter along
+        tomopy.misc.corr.remove_outlier(tomo, args['outlier_diff_2D'], size=args['outlier_size_2D'], axis=0, out=tomo)
+
+    return tomo
+
+def postlog_process_tomo(tomo, args):
+    # wavelet filter to remove rings (stripes in sinogram)
+    if 'ringSigma' in args and args['ringSigma']:
+        tomo = tomopy.remove_stripe_fw(tomo, sigma=args['ringSigma'], level=args['ringLevel'], pad=False, wname='db5')
+    
     return tomo
 
 # this is the default processing done in Dula's reconstruction.py
@@ -117,7 +138,7 @@ def preprocess_tomo_orig(tomo, flat, dark,
                     **kwargs):
 
     # median filter -- WHY ACROSS ROTATION AXIS?
-    tomopy.misc.corr.remove_outlier1d(tomo, outlier_diff1D, size=outlier_size1D, axis=0, ncore=None, out=tomo)
+    tomopy.misc.corr.remove_outlier(tomo, outlier_diff, size=outlier_size, axis=0, ncore=None, out=tomo)
     # normalize with flat/dark, threshold transmission, and take negative log
     if minimum_transmission:
         tomo[tomo < minimum_transmission] = minimum_transmission
