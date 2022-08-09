@@ -1,0 +1,13 @@
+#!/bin/bash
+#SBATCH -q regular
+#SBATCH -A als
+#SBATCH --image=dperl/tomocam:latest
+#SBATCH -N 1
+#SBATCH -n 1
+#SBATCH -C haswell
+#SBATCH --ntasks-per-node=32
+#SBATCH --time=00:10:00
+#SBATCH -J tomo832
+#SBATCH --exclusive
+
+export NUMEXPR_MAX_THREADS=999
