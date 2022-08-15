@@ -267,7 +267,6 @@ def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,num_iter=20):
     return rec
 
 def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None):
-    print(f"COR: {COR}, down: {proj_downsample}")
     if init_image is None:
         init_image = astra_fbp_recon(tomo,angles,COR=COR/proj_downsample,fc=0.5,gpu=check_for_gpu())
     tomo = shift_projections(tomo,COR/proj_downsample) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
@@ -324,10 +323,15 @@ def get_scratch_path():
     return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
 
 def get_batch_template(algorithm="astra"):
-    if algorithm == "svmbir":
-        return 'svmbir_template_job.txt'
     s = os.popen("echo $NERSC_HOST")
     out = s.read()
+    if algorithm == "svmbir":
+        if 'cori' in out:
+            return 'svmbir_template_job-cori.txt'
+        elif 'perlmutter' in out:
+            return 'svmbir_template_job-perlmutter.txt'
+        else:
+            sys.exit('not on cori or perlmutter -- throwing error')
     if 'cori' in out:
         return 'astra_template_job-cori.txt'
     elif 'perlmutter' in out:
