@@ -266,10 +266,11 @@ def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,num_iter=20):
     rec = astra.data3d.get(rec_id)
     return rec
 
-def svmbir_recon(tomo,angles,COR=0,downsample_factor=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None):
+def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None):
+    print(f"COR: {COR}, down: {proj_downsample}")
     if init_image is None:
-        init_image = astra_fbp_recon(tomo,angles,COR=COR/downsample_factor,fc=0.5,gpu=check_for_gpu())
-    tomo = shift_projections(tomo,COR/downsample_factor) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
+        init_image = astra_fbp_recon(tomo,angles,COR=COR/proj_downsample,fc=0.5,gpu=check_for_gpu())
+    tomo = shift_projections(tomo,COR/proj_downsample) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
     recon = svmbir.recon(tomo,angles,
                               center_offset=0.0, # MUST BE ZERO TO AVOID VERY LONG COMPUTATION OF SYSTEM MATRIX
                               init_image=init_image, # init with fbp for faster convergence
