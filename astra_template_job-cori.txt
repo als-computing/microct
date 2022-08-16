@@ -4,10 +4,10 @@
 #SBATCH --image=dperl/tomocam:latest
 #SBATCH -N 1
 #SBATCH -n 1
-#SBATCH -C haswell
-#SBATCH --ntasks-per-node=32
+#SBATCH -C gpu
+#SBATCH -c 10
+#SBATCH --ntasks-per-node=1
 #SBATCH --time=00:10:00
 #SBATCH -J tomo832
-#SBATCH --exclusive
 
 export NUMEXPR_MAX_THREADS=999
