@@ -86,14 +86,14 @@ def batch_astra_recon(settings):
     ''' 
     save_dir = os.path.join(settings["data"]["output_path"],settings["data"]["name"])
     if not os.path.exists(save_dir): os.makedirs(save_dir)
-    save_name = os.path.join(save_dir,"img")
+    save_name = os.path.join(save_dir,settings["data"]["name"])
     for i in range(np.ceil((settings["data"]['stop_slice']-settings["data"]['start_slice'])/nchunk).astype(int)):
         start_iter = settings["data"]['start_slice']+i*nchunk
         stop_iter = np.minimum(start_iter+nchunk,settings["data"]['stop_slice'])
         print(f"Starting recon of slices {start_iter}-{stop_iter}...",end=' ')
         tic = time.time()
 
-        recon = helper.default_reconstruction(path=settings["data"]["data_path"],
+        recon, _ = helper.default_reconstruction(path=settings["data"]["data_path"],
                                angles_ind=settings["data"]['angles_ind'],
                                slices_ind=slice(start_iter,stop_iter,1),
                                proj_downsample=settings["data"]["proj_downsample"],

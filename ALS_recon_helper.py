@@ -15,7 +15,7 @@ def default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, f
                                  postprocess_settings=postprocessing_args)
     recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
     # recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
-    return recon
+    return recon, tomo
 
 def show_slice_reconstruction(path, slice_num,
                               proj_downsample, angles_downsample,
@@ -26,6 +26,7 @@ def show_slice_reconstruction(path, slice_num,
                               ringSigma, ringLevel,
                               use_gpu,
                               img_handle,
+                              sino_handle,
                               hline_handle):
     
     slices_ind = slice(slice_num,slice_num+1,1)
@@ -40,11 +41,12 @@ def show_slice_reconstruction(path, slice_num,
     postrocessing_args = {"ringSigma": ringSigma,
                           "ringLevel": ringLevel
                          }
-    recon = default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, postrocessing_args, use_gpu)
+    recon, tomo = default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, postrocessing_args, use_gpu)
     img_handle.set_data(recon.squeeze())
+    sino_handle.set_data(tomo.squeeze())
     hline_handle.set_ydata([slice_num,slice_num])
 
-def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,hline_handle):
+def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,sino_handle,hline_handle):
     """
         Create widgets for every parameter, then put into Tabs widgets and interactive_output
     """
@@ -191,6 +193,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,h
                              'ringLevel': ringLevel_widget,
                              'use_gpu': widgets.fixed(use_gpu),
                              'img_handle': widgets.fixed(img_handle),
+                             'sino_handle': widgets.fixed(sino_handle),
                              'hline_handle': widgets.fixed(hline_handle)
                             })    
     

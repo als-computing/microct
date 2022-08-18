@@ -372,13 +372,30 @@ def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
                                                                        step=(recon.max()-recon.min())/500, value=clims))
     return axs, img, clim_slider
 
-def set_proj(img,path,proj_num):
+def set_proj(img,path,proj_num,hline_handles=None):
     tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None, prelog=True)
     if not isinstance(img, list):
         img = [img]
     for im in img:
-        im.set_data(tomo.squeeze())        
-    
+        im.set_data(tomo.squeeze()) 
+    if hline_handles:
+        if not isinstance(hline_handles, list):
+            hline_handles = [hline_handles]
+        for h in hline_handles:
+            h.set_ydata([proj_num,proj_num])
+
+def set_sino(img,path,sino_num,hline_handles=None):
+    tomo, _ = read_data(path, sino=slice(sino_num,sino_num+1,1), downsample_factor=None, prelog=True)
+    if not isinstance(img, list):
+        img = [img]
+    for im in img:
+        im.set_data(tomo.squeeze())         
+    if hline_handles:
+        if not isinstance(hline_handles, list):
+            hline_handles = [hline_handles]
+        for h in hline_handles:        
+            h.set_ydata([sino_num,sino_num])
+        
 def set_clim(img,clims):
     if not isinstance(img, list):
         img = [img]
