@@ -324,9 +324,10 @@ def get_svmbir_cache_dir():
     #     sys.exit('not or cori or perlmutter -- throwing error')
 
 def get_scratch_path():
-    try:
-        return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
-    except Exception: # if command not found, not on NERSC
+    scratch_echo = subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")
+    if "global" in scratch_echo: # on NERSC
+        return scratch_echo[:-1]
+    else: # not on NERSC
         return os.getcwd()
 
 def get_batch_template(algorithm="astra"):
