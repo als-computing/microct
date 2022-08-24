@@ -10,13 +10,18 @@ from scipy.fft import fft, ifft, fftfreq, fftshift
 from skimage import transform, io
 import tomopy
 import astra
-import svmbir
 import dxchange
 from pathlib import Path
 import pandas as pd
 import copy
 import pickle
 import base64
+
+import importlib
+svmbir_spec = importlib.util.find_spec("svmbir")
+if svmbir_spec is not None:
+    import svmbir
+
 """
 Functions are in rough order of when they are called in notebook
 Need to add comments
@@ -282,7 +287,7 @@ def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0
     recon = recon.transpose(0,2,1) # to match tomopy format
     return recon
       
-def svmbir_fbp(tomo,angles,cor=0,num_threads=None):   
+def svmbir_fbp(tomo,angles,cor=0,num_threads=None): 
     fourier_filter = transform.radon_transform._get_fourier_filter(tomo.shape[2],'ramp').squeeze()
     filtered_tomo = np.real(ifft( fft(tomo, axis=2) * fourier_filter, axis=2))
     rec = svmbir.backproject(filtered_tomo, angles,
@@ -295,7 +300,6 @@ def svmbir_fbp(tomo,angles,cor=0,num_threads=None):
    
 
 def cache_svmbir_projector(img_size,num_angles,num_threads=None):
-
     for i,(sz,nang) in enumerate(zip(img_size,num_angles)):
         print(f"Starting size={sz[0]}x{sz[1]}")
         img = svmbir.phantom.gen_shepp_logan(sz[0],sz[1])[np.newaxis]
@@ -320,7 +324,10 @@ def get_svmbir_cache_dir():
     #     sys.exit('not or cori or perlmutter -- throwing error')
 
 def get_scratch_path():
-    return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
+    try:
+        return subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")[:-1]
+    except Exception: # if command not found, not on NERSC
+        return os.getcwd()
 
 def get_batch_template(algorithm="astra"):
     s = os.popen("echo $NERSC_HOST")
