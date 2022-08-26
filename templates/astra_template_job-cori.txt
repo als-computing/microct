@@ -7,6 +7,7 @@
 #SBATCH -C gpu
 #SBATCH -c 10
 #SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=4
 #SBATCH --time=00:10:00
 #SBATCH -J tomo832
 

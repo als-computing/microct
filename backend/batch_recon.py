@@ -13,9 +13,6 @@ import time
 import ALS_recon_functions as als
 import ALS_recon_helper as helper
 
-
-use_gpu = als.check_for_gpu()
-
 # def make_settings_dict(n, basepath, settings):
 #     '''
 #     Inputs:
@@ -78,6 +75,7 @@ def batch_astra_recon(settings):
 #     recon = als.astra_fbp_recon(tomo, angles, **settings)
 #     fname = "reconstruction_" + settings["name"]
 #     dxchange.write_tiff_stack(recon, fname = fname)    
+    use_gpu = als.check_for_gpu()
 
     nchunk = 50 
     '''
@@ -87,6 +85,11 @@ def batch_astra_recon(settings):
     save_dir = os.path.join(settings["data"]["output_path"],settings["data"]["name"])
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     save_name = os.path.join(save_dir,settings["data"]["name"])
+    
+    # if COR is None, use cross-correlation finder
+    if settings["recon"]["COR"] is None:
+        settings["recon"]["COR"] = als.auto_find_cor(settings["data"]["data_path"])
+
     for i in range(np.ceil((settings["data"]['stop_slice']-settings["data"]['start_slice'])/nchunk).astype(int)):
         start_iter = settings["data"]['start_slice']+i*nchunk
         stop_iter = np.minimum(start_iter+nchunk,settings["data"]['stop_slice'])
@@ -101,7 +104,7 @@ def batch_astra_recon(settings):
                                fc=settings["recon"]["fc"],
                                preprocessing_args=settings["preprocess"],
                                postprocessing_args=settings["postprocess"],
-                               use_gpu=settings["recon"]["use_gpu"])
+                               use_gpu=use_gpu)
 
         print(f"Finished: took {time.time()-tic} sec. Saving files...")
         dxchange.write_tiff_stack(recon, fname=save_name, start=start_iter)
@@ -114,6 +117,10 @@ def mpi4py_svmbir_recon(settings):
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
 
+    # if COR is None, use cross-correlation finder
+    if settings["svmbir_settings"]["COR"] is None:
+        settings["svmbir_settings"]["COR"] = als.auto_find_cor(settings["data"]["data_path"])    
+    
     for i in range((settings["data"]['stop_slice']-settings["data"]['start_slice'])):
         if i % size == rank:
             print(f"Starting slice {i} on {name}, core {rank} of {size}")

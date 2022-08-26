@@ -335,15 +335,15 @@ def get_batch_template(algorithm="astra"):
     out = s.read()
     if algorithm == "svmbir":
         if 'cori' in out:
-            return 'svmbir_template_job-cori.txt'
+            return os.path.join('templates','svmbir_template_job-cori.txt')
         elif 'perlmutter' in out:
-            return 'svmbir_template_job-perlmutter.txt'
+            return os.path.join('templates','svmbir_template_job-perlmutter.txt')
         else:
             sys.exit('not on cori or perlmutter -- throwing error')
     if 'cori' in out:
-        return 'astra_template_job-cori.txt'
+        return os.path.join('templates','astra_template_job-cori.txt')
     elif 'perlmutter' in out:
-        return 'astra_template_job-perlmutter.txt'
+        return os.path.join('templates','astra_template_job-perlmutter.txt')
     else:
         sys.exit('not on cori or perlmutter -- throwing error')
 
