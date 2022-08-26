@@ -1,0 +1,17 @@
+channels:
+  - defaults
+  - conda-forge
+  - astra-toolbox
+dependencies:
+  - python
+  - numpy
+  - scipy
+  - matplotlib
+  - tomopy
+  - astra-toolbox
+  - dxchange
+  - svmbir
+  - scikit-image
+  - jupyterlab
+  - ipympl
+  - ipyfilechooser
