@@ -1,3 +1,4 @@
+name: als832
 channels:
   - defaults
   - conda-forge
