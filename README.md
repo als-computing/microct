@@ -23,8 +23,10 @@ cd als_microct-recon
 conda env create -f environment.yml
 ```
 if conda cannot solve environment, check that channel priority is flexible 
+```
 conda config --get channel_priority
 conda config --set channel_priority flexible
+```
 
 * Create kernel
 ```
