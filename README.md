@@ -22,6 +22,9 @@ git clone git@github.com:perlmutter/battery_microct.git
 cd als_microct-recon
 conda env create -f environment.yml
 ```
+if conda cannot solve environment, check that channel priority is flexible 
+conda config --get channel_priority
+conda config --set channel_priority flexible
 
 * Create kernel
 ```
@@ -29,7 +32,11 @@ conda activate als832
 ipython kernel install --user --name=als832
 ```
 
-* You should now be able to run ALS_recon.ipynb with the als832 kernel from JupyterLab
+* You should now be able to run launch Jupyter lab and run ALS_recon.ipynb with the als832 kernel
+```
+jupyter lab
+```
+
 
 ## Authors
 
