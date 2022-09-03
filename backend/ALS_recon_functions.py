@@ -83,7 +83,7 @@ def read_metadata(path,print_flag=True):
             'angularrange': angularrange}
 
 def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
-              preprocess_settings=None, postprocess_settings=None, **kwargs):
+              preprocess_settings={'minimum_transmission':0.01}, postprocess_settings=None, **kwargs):
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
     tomopy.normalize(tomo, flat, dark, out=tomo)
@@ -95,7 +95,8 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
         if downsample_factor and downsample_factor!=1:
             tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
         return tomo, angles
-    tomopy.minus_log(tomo, out=tomo)
+    # take log
+    tomopy.minus_log(tomo, out=tomo)   
     # downsampling post-log is better
     if downsample_factor and downsample_factor!=1:
         tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
@@ -104,10 +105,6 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
     return tomo, angles
 
 def prelog_process_tomo(tomo, args):
-    # threshold low measurements
-    if 'minimum_transmission' in args and args['minimum_transmission']:
-        tomo[tomo < args['minimum_transmission'] ] = args['minimum_transmission']
-
     # sarepy ring removal (combo of 3 methods, see: https://sarepy.readthedocs.io/toc/section3_1/section3_1_6.html)
     # "small stripe" method relies on median filter along angle dimension (after sorting) 
     if 'sm_size' in args and args['sm_size']:
@@ -123,6 +120,9 @@ def prelog_process_tomo(tomo, args):
         # currently hardcoded to filter along
         tomopy.misc.corr.remove_outlier(tomo, args['outlier_diff_2D'], size=args['outlier_size_2D'], axis=0, out=tomo)
 
+    # threshold low measurements
+    if 'minimum_transmission' in args and args['minimum_transmission']:
+        tomo[tomo < args['minimum_transmission'] ] = args['minimum_transmission']
     return tomo
 
 def postlog_process_tomo(tomo, args):
@@ -163,11 +163,12 @@ def mask_recon(recon,r=None):
 
 def auto_find_cor(path):
     metadata = read_metadata(path,print_flag=False)
-    tomo, _ = read_data(path, proj=slice(0,None,metadata['numangles']-1),downsample_factor=None)
-    first_proj, last_proj_flipped = tomo[0], tomo[1,:,::-1]
+    lastcor = metadata['numangles']-1 # why minus 1? Makes comparison with second to last projection
+    # lastcor = metadata['numangles']
+    tomo, _ = read_data(path, proj=slice(0,lastcor,lastcor-1),downsample_factor=None)
     cor = tomopy.find_center_pc(tomo[0], tomo[-1], tol=0.25)
     cor = cor - tomo.shape[2]/2
-    return cor
+    return cor, tomo
 
 def shift_projections(projs, COR, yshift=0):
     translateFunction = transform.SimilarityTransform(translation=(COR, yshift))

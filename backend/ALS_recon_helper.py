@@ -152,7 +152,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
                                     min=0.,
                                     max=1.,
                                     step=0.01,
-                                    value=0,
+                                    value=0.01,
         style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
     additional_parameter_widgets['min_transmission'] = minTranmission_widget
