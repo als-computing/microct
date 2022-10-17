@@ -1,0 +1,15 @@
+name: als832
+dependencies:
+  - python >= 3.8
+  - numpy
+  - scipy
+  - matplotlib >= 3.4
+  - astra-toolbox::astra-toolbox
+  - conda-forge::tomopy
+  - conda-forge::dxchange
+  - conda-forge::svmbir
+  - conda-forge::scikit-image
+  - conda-forge::jupyter
+  - conda-forge::jupyterlab > 3, < 4
+  - conda-forge::ipympl
+  - conda-forge::ipyfilechooser
