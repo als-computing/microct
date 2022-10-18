@@ -112,7 +112,7 @@ def prelog_process_tomo(tomo, args):
 
     # 1D median filter along angle dimension, to remove outliers 
     if 'outlier_diff_1D' in args and args['outlier_diff_1D']:
-        # currently hardcoded to filter along
+        # currently hardcoded to filter along angle dimension
         tomopy.misc.corr.remove_outlier1d(tomo, args['outlier_diff_1D'], size=args['outlier_size_1D'], axis=0, out=tomo)
         
     # 2D median filter on each projection (ie, perpendicular to angle), to remove outliers 
@@ -336,15 +336,15 @@ def get_batch_template(algorithm="astra"):
     out = s.read()
     if algorithm == "svmbir":
         if 'cori' in out:
-            return os.path.join('templates','svmbir_template_job-cori.txt')
+            return os.path.join('slurm_scripts','svmbir_template_job-cori.txt')
         elif 'perlmutter' in out:
-            return os.path.join('templates','svmbir_template_job-perlmutter.txt')
+            return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
         else:
             sys.exit('not on cori or perlmutter -- throwing error')
     if 'cori' in out:
-        return os.path.join('templates','astra_template_job-cori.txt')
+        return os.path.join('slurm_scripts','astra_template_job-cori.txt')
     elif 'perlmutter' in out:
-        return os.path.join('templates','astra_template_job-perlmutter.txt')
+        return os.path.join('slurm_scripts','astra_template_job-perlmutter.txt')
     else:
         sys.exit('not on cori or perlmutter -- throwing error')
 
@@ -420,8 +420,8 @@ def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,ys
     img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
     plt.tight_layout()
 
-    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'))
-    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'))
+    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=False)
+    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'),continuous_update=False)
     # only show yshift slider if flag is True
     if yshift:
         ui = widgets.VBox([slider_dx, slider_dy])
