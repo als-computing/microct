@@ -298,7 +298,16 @@ def svmbir_fbp(tomo,angles,cor=0,num_threads=None):
                              svmbir_lib_path=get_svmbir_cache_dir(),
                              verbose=False)
     return rec
-   
+
+
+def tomopy_gridrec_recon(tomo,angles,COR=0,fc=1,butterworth_order=2,**kwargs):
+    rec = tomopy.recon(tomo, angles,
+                       center=COR + tomo.shape[2]/2,
+                       algorithm='gridrec',
+                       filter_name='butterworth',
+                       filter_par=[fc, butterworth_order])                       
+    return rec
+
 
 def cache_svmbir_projector(img_size,num_angles,num_threads=None):
     for i,(sz,nang) in enumerate(zip(img_size,num_angles)):
@@ -420,8 +429,8 @@ def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,ys
     img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
     plt.tight_layout()
 
-    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.5, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=False)
-    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.5, value=0, layout=widgets.Layout(width='50%'),continuous_update=False)
+    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=False)
+    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=False)
     # only show yshift slider if flag is True
     if yshift:
         ui = widgets.VBox([slider_dx, slider_dy])
