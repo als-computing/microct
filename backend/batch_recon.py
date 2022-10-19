@@ -9,34 +9,35 @@ import dxchange
 import base64
 import pickle
 import time
+from pathlib import Path
 
 import ALS_recon_functions as als
 import ALS_recon_helper as helper
 
-# def make_settings_dict(n, basepath, settings):
-#     '''
-#     Inputs:
-#     name: string, filename
-#     settings: one dictionary of base settings
+
+def create_batch_script(settings):
     
-#     Returns: 
-#     d: dictionary with updated path and filename
-#     '''
-#     d = settings.copy()
-#     d["path"] = basepath/n
-#     d["name"] = n
-#     return d
+    with open (als.get_batch_template(), "r") as t:
+        template = t.read()
 
+    configs_dir = Path(os.path.join(settings["data"]["output_path"],"configs/"))
+    if not configs_dir.exists():
+        os.mkdir(configs_dir)
 
-# def view_dictionaries(l):
-#     '''
-#     Input: 
-#     l: list of prepared dictionaries
-#     Returns 
-#     df: a dataframe of dictionaries for easy viewing.
-#     '''
-#     df = pd.DataFrame(l)
-#     return df.T
+    config_script_name = os.path.join(configs_dir,"config_"+settings["data"]["name"]+".sh")    
+    enc = dictionary_prep(settings)
+    with open(config_script_name, 'w') as f:
+        script = template
+        script += "\n"
+        script += "cd " + os.getcwd()
+        script += "\n"
+        script += "shifter python backend/batch_recon.py"
+        script += " '" + enc + "'"
+        f.write(script)
+        f.close()
+    
+    return configs_dir, config_script_name
+
 
 def dictionary_prep(dictionary):
     '''
@@ -50,31 +51,7 @@ def dictionary_prep(dictionary):
     return st
 
 
-# def make_dict_with_settings_and_preprocess(settings, preprocess_settings):
-#     '''
-#     Input: 
-#     dictionary: single dictionary of settings
-#     Returns 
-#     st: encoded dictionary
-#     '''
-#     both = {}
-#     both["settings"] = copy.deepcopy(settings)
-#     both["preprocess"] = copy.deepcopy(preprocess_settings)
-#     return both
-
-def batch_astra_recon(settings):
-#     d = pickle.loads(base64.b64decode(string.encode('utf-8')))
-#     settings = d["settings"]
-#     preprocess_settings = d["preprocess"]
-#     tomo, angles = als.read_data(settings["path"],
-#                              preprocess_settings=preprocess_settings,
-#                              proj=settings["angles_ind"],
-#                              sino=settings["slices_ind"],
-#                              downsample_factor=settings["downsample_factor"])
- 
-#     recon = als.astra_fbp_recon(tomo, angles, **settings)
-#     fname = "reconstruction_" + settings["name"]
-#     dxchange.write_tiff_stack(recon, fname = fname)    
+def batch_astra_recon(settings): 
     use_gpu = als.check_for_gpu()
 
     nchunk = 50 
@@ -99,11 +76,11 @@ def batch_astra_recon(settings):
         recon, _ = helper.default_reconstruction(path=settings["data"]["data_path"],
                                angles_ind=settings["data"]['angles_ind'],
                                slices_ind=slice(start_iter,stop_iter,1),
-                               proj_downsample=settings["data"]["proj_downsample"],
                                COR=settings["recon"]["COR"],
+                               proj_downsample=settings["data"]["proj_downsample"],
                                fc=settings["recon"]["fc"],
-                               preprocessing_args=settings["preprocess"],
-                               postprocessing_args=settings["postprocess"],
+                               preprocessing_settings=settings["preprocess"],
+                               postprocessing_settings=settings["postprocess"],
                                use_gpu=use_gpu)
 
         print(f"Finished: took {time.time()-tic} sec. Saving files...")

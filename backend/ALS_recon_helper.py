@@ -1,20 +1,34 @@
+import os
+import time
 import numpy as np
 import ipywidgets as widgets
 import ALS_recon_functions as als
 
 
-def default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc,
-                           preprocessing_args=None, postprocessing_args=None, use_gpu=False):
+def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
+                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, use_gpu=False):
     """
-    This is what ALS_recon notebook calls -- can use fbp, cgls, or something else
+    This is what ALS_recon notebook calls for all reconstructions -- can use fbp, cgls, or something else, depending on machine/resources
     """
+   
     tomo, angles = als.read_data(path,
                                  proj=angles_ind, sino=slices_ind,
                                  downsample_factor=proj_downsample,
-                                 preprocess_settings=preprocessing_args,
-                                 postprocess_settings=postprocessing_args)
-    recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
-    # recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
+                                 preprocess_settings=preprocessing_settings,
+                                 postprocess_settings=postprocessing_settings)
+
+    if use_gpu: # have GPU
+        recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
+        # recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
+    else:
+        # determine what machine we are on
+        s = os.popen("echo $NERSC_HOST")
+        out = s.read()
+        if 'perlmutter' in out: # on Perlmutter CPU node, still pretty fast
+            recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
+        else: # on Cori CPU node or not NERSC -- assume slow so use gridrec
+            recon = als.tomopy_gridrec_recon(tomo, angles, COR=COR/proj_downsample, fc=fc)
+
     return recon, tomo
 
 def show_slice_reconstruction(path, slice_num,
@@ -31,17 +45,17 @@ def show_slice_reconstruction(path, slice_num,
     
     slices_ind = slice(slice_num,slice_num+1,1)
     angles_ind = slice(0,-1,angles_downsample)
-    preprocessing_args = {"minimum_transmission": minimum_transmission,
+    preprocessing_settings = {"minimum_transmission": minimum_transmission,
                           "snr": sarepy_snr,
                           "la_size": sarepy_la_size,
                           "sm_size": sarepy_sm_size,
                           "outlier_diff_1D": outlier_diff,
                           "outlier_size_1D": outlier_size
                          }
-    postrocessing_args = {"ringSigma": ringSigma,
+    postrocessing_settings = {"ringSigma": ringSigma,
                           "ringLevel": ringLevel
                          }
-    recon, tomo = default_reconstruction(path, angles_ind, slices_ind, proj_downsample, COR, fc, preprocessing_args, postrocessing_args, use_gpu)
+    recon, tomo = default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample, fc, preprocessing_settings, postrocessing_settings, use_gpu)
     img_handle.set_data(recon.squeeze())
     if sino_handle: sino_handle.set_data(tomo.squeeze())
     if hline_handle: hline_handle.set_ydata([slice_num,slice_num])
@@ -55,7 +69,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
     # Angle downsample    
     angle_downsample_widget = widgets.Dropdown(
         options=[("Every Angle",1), ("Every 2nd Angle",2), ("Every 4th Angle",4), ("Every 8th Angle",8)],
-        value=1 if use_gpu else 4,
+        value=1,
         description='Angle Downsampling:',
         style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
@@ -87,15 +101,26 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
         description='Filter Cutoff (0.01 - 1, 1 is no filtering):',
         style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
-
     parameter_widgets['fc'] = fc_widget
     # Slice number   
-    slice_num_widget = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+    # slice_num_widget = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+    #                                      min=0,
+    #                                      max=metadata['numslices']-1,
+    #                                      value=metadata['numslices']//2,
+    #                                      continuous_update=False)
+    slice_num_slider = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+                                         min=0,
+                                         max=metadata['numslices']-1,
+                                         value=metadata['numslices']//2,
+                                         readout=False,
+                                         continuous_update=False)
+    slice_num_text = widgets.BoundedIntText(description='', layout=widgets.Layout(width='20%'),
                                          min=0,
                                          max=metadata['numslices']-1,
                                          value=metadata['numslices']//2,
                                          continuous_update=False)
-    
+    widgets.link((slice_num_slider, 'value'), (slice_num_text, 'value'))
+    slice_num_widget = widgets.HBox([slice_num_slider,slice_num_text])
     parameter_widgets['slice_num'] = slice_num_widget
 
     ################## Ring Removal Parameters ##################################    
@@ -177,28 +202,49 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
     )
     additional_parameter_widgets['outlier_size'] = outlierSize_widget
 
-    ########################################################################################################
-    out = widgets.interactive_output(show_slice_reconstruction,
-                            {'path': widgets.fixed(path),
-                             'slice_num': slice_num_widget,
-                             'angles_downsample': angle_downsample_widget,
-                             'proj_downsample': proj_downsample_widget,
-                             'COR': cor_widget,
-                             'fc': fc_widget,
-                             'minimum_transmission': minTranmission_widget,
-                             'outlier_diff': outlierDiff_widget,
-                             'outlier_size': outlierSize_widget,
-                             'sarepy_sm_size': sarepy_small_size_widget,
-                             'sarepy_la_size': sarepy_large_size_widget,
-                             'sarepy_snr': sarepy_snr_widget,
-                             'ringSigma': ringSigma_widget,
-                             'ringLevel': ringLevel_widget,
-                             'use_gpu': widgets.fixed(use_gpu),
-                             'img_handle': widgets.fixed(img_handle),
-                             'sino_handle': widgets.fixed(sino_handle),
-                             'hline_handle': widgets.fixed(hline_handle)
-                            })    
+    ########################################################################################################   
+    reconstruct_button = widgets.Button(
+        description='Reconstruct',
+        disabled=False,
+        button_style='success',
+    )
+    reconstruct_status = widgets.Text(
+        value=' ',
+        placeholder='... ',
+        description='',
+        disabled=False
+    )
+    reconstruction_box = widgets.HBox([reconstruct_button,reconstruct_status])
     
+    out = widgets.Output()
+    def reconstruct_callback(b):
+        with out:
+            reconstruct_status.value = "Reconstructing..."
+            tic = time.time()
+            show_slice_reconstruction(
+                            path=path,
+                            slice_num=slice_num_widget.children[1].value,
+                            angles_downsample=angle_downsample_widget.value,
+                            proj_downsample=proj_downsample_widget.value,
+                            COR=cor_widget.value,
+                            fc=fc_widget.value,
+                            minimum_transmission=minTranmission_widget.value,
+                            outlier_diff=outlierDiff_widget.value,
+                            outlier_size=outlierSize_widget.value,
+                            sarepy_sm_size=sarepy_small_size_widget.value,
+                            sarepy_la_size=sarepy_large_size_widget.value,
+                            sarepy_snr=sarepy_snr_widget.value,
+                            ringSigma=ringSigma_widget.value,
+                            ringLevel=ringLevel_widget.value,
+                            use_gpu=use_gpu,
+                            img_handle=img_handle,
+                            sino_handle=sino_handle,
+                            hline_handle=hline_handle
+                            )
+            reconstruct_status.value = f"Finished: took {time.time()-tic:.1f} sec"
+
+    reconstruct_button.on_click(reconstruct_callback)   
+
     common_box = widgets.VBox(list(parameter_widgets.values()))
     ring_box  = widgets.VBox(list(ringRemoval_parameter_widgets.values()))
     additional_box = widgets.VBox(list(additional_parameter_widgets.values()))
@@ -210,4 +256,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
 
     parameter_widgets['ring'] = ringRemoval_parameter_widgets
     parameter_widgets['additional'] = additional_parameter_widgets
+    
+    all_parameters_tab = widgets.VBox([all_parameters_tab,reconstruction_box])
+    
     return parameter_widgets, all_parameters_tab, out

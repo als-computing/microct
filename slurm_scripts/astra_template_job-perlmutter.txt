@@ -2,6 +2,7 @@
 #SBATCH -q regular
 #SBATCH -A als_g
 #SBATCH --image=dperl/tomocam:latest
+#SBATCH --volume=/global/cfs/cdirs/als/data_mover/share/$USER:/alsuser
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -C gpu
