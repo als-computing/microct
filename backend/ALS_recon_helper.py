@@ -6,7 +6,7 @@ import ALS_recon_functions as als
 
 
 def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
-                           fc=1, preprocessing_args=None, postprocessing_args=None, use_gpu=False):
+                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, use_gpu=False):
     """
     This is what ALS_recon notebook calls for all reconstructions -- can use fbp, cgls, or something else, depending on machine/resources
     """
@@ -14,8 +14,8 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
     tomo, angles = als.read_data(path,
                                  proj=angles_ind, sino=slices_ind,
                                  downsample_factor=proj_downsample,
-                                 preprocess_settings=preprocessing_args,
-                                 postprocess_settings=postprocessing_args)
+                                 preprocess_settings=preprocessing_settings,
+                                 postprocess_settings=postprocessing_settings)
 
     if use_gpu: # have GPU
         recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
@@ -45,17 +45,17 @@ def show_slice_reconstruction(path, slice_num,
     
     slices_ind = slice(slice_num,slice_num+1,1)
     angles_ind = slice(0,-1,angles_downsample)
-    preprocessing_args = {"minimum_transmission": minimum_transmission,
+    preprocessing_settings = {"minimum_transmission": minimum_transmission,
                           "snr": sarepy_snr,
                           "la_size": sarepy_la_size,
                           "sm_size": sarepy_sm_size,
                           "outlier_diff_1D": outlier_diff,
                           "outlier_size_1D": outlier_size
                          }
-    postrocessing_args = {"ringSigma": ringSigma,
+    postrocessing_settings = {"ringSigma": ringSigma,
                           "ringLevel": ringLevel
                          }
-    recon, tomo = default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample, fc, preprocessing_args, postrocessing_args, use_gpu)
+    recon, tomo = default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample, fc, preprocessing_settings, postrocessing_settings, use_gpu)
     img_handle.set_data(recon.squeeze())
     if sino_handle: sino_handle.set_data(tomo.squeeze())
     if hline_handle: hline_handle.set_ydata([slice_num,slice_num])
@@ -101,15 +101,26 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
         description='Filter Cutoff (0.01 - 1, 1 is no filtering):',
         style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
-
     parameter_widgets['fc'] = fc_widget
     # Slice number   
-    slice_num_widget = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+    # slice_num_widget = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+    #                                      min=0,
+    #                                      max=metadata['numslices']-1,
+    #                                      value=metadata['numslices']//2,
+    #                                      continuous_update=False)
+    slice_num_slider = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
+                                         min=0,
+                                         max=metadata['numslices']-1,
+                                         value=metadata['numslices']//2,
+                                         readout=False,
+                                         continuous_update=False)
+    slice_num_text = widgets.BoundedIntText(description='', layout=widgets.Layout(width='20%'),
                                          min=0,
                                          max=metadata['numslices']-1,
                                          value=metadata['numslices']//2,
                                          continuous_update=False)
-    
+    widgets.link((slice_num_slider, 'value'), (slice_num_text, 'value'))
+    slice_num_widget = widgets.HBox([slice_num_slider,slice_num_text])
     parameter_widgets['slice_num'] = slice_num_widget
 
     ################## Ring Removal Parameters ##################################    
@@ -212,7 +223,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
             tic = time.time()
             show_slice_reconstruction(
                             path=path,
-                            slice_num=slice_num_widget.value,
+                            slice_num=slice_num_widget.children[1].value,
                             angles_downsample=angle_downsample_widget.value,
                             proj_downsample=proj_downsample_widget.value,
                             COR=cor_widget.value,

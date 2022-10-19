@@ -79,8 +79,8 @@ def batch_astra_recon(settings):
                                COR=settings["recon"]["COR"],
                                proj_downsample=settings["data"]["proj_downsample"],
                                fc=settings["recon"]["fc"],
-                               preprocessing_args=settings["preprocess"],
-                               postprocessing_args=settings["postprocess"],
+                               preprocessing_settings=settings["preprocess"],
+                               postprocessing_settings=settings["postprocess"],
                                use_gpu=use_gpu)
 
         print(f"Finished: took {time.time()-tic} sec. Saving files...")
