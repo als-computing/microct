@@ -178,12 +178,21 @@ def mask_recon(recon,r=None):
     """ Applies circular mask to image - all pixels outside radius set to zero.
         r: mask radius. None defaults to half of image width or height (whichever is larger)
     """
+    assert recon.ndim in [2,3], f"Image dimensions must be 2 or 3, but got: {recon.ndim}"
+    stack_flag = True if recon.ndim == 3 else False
+    if not stack_flag:
+        recon = np.expand_dims(recon,0)
+
     # Need to add this to remove bright halo
     x, y = np.arange(recon.shape[1]), np.arange(recon.shape[2])
     X,Y = np.meshgrid(x-x.mean(),y-y.mean(),indexing='ij')
     if r is None:
         r = np.maximum(recon.shape[1],recon.shape[2])/2
     recon[:,(X**2 + Y**2 > (r)**2)] = 0
+    
+    if not stack_flag:
+        recon = recon.squeeze()
+        
     return recon
 
 def auto_find_cor(path):

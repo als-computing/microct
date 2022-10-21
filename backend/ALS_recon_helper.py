@@ -12,7 +12,7 @@ import ALS_recon_functions as als
 
 
 def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
-                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, use_gpu=False):
+                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, mask=True, use_gpu=False):
     """ This is what the ALS_recon notebook calls for all reconstructions (except SVMBIR cells) -- can use fbp, cgls, or something else, depending on machine/resources
     
         path: full path to .h5 file
@@ -28,7 +28,8 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
                                  proj=angles_ind, sino=slices_ind,
                                  downsample_factor=proj_downsample,
                                  preprocess_settings=preprocessing_settings,
-                                 postprocess_settings=postprocessing_settings)
+                                 postprocess_settings=postprocessing_settings,
+                                 mask=True)
 
     if use_gpu: # have GPU
         recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
@@ -42,6 +43,9 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
         else: # on Cori CPU node or not NERSC -- assume slow so use gridrec
             recon = als.tomopy_gridrec_recon(tomo, angles, COR=COR/proj_downsample, fc=fc)
 
+    if mask:
+        recon = als.mask_recon(recon)
+    
     return recon, tomo
 
 def show_slice_reconstruction(path, slice_num,
