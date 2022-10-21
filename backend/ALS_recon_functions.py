@@ -46,9 +46,10 @@ def get_directory_filelist(path,max_num=10000, verbose = False):
         sorted_file_names.append(f'{i}: {filenamelist[i]}')
     return filenamelist, sorted_file_names
 
-def read_metadata(path,print_flag=True):
+def read_metadata(path,convert360=False,print_flag=True):
     """ Reads metadata (slices, rays, etc) from APS tomoscan hdf5 format and returns in dictionary
         path: full path to .h5 file
+        convert360: if True, will do 360 to 180 deg conversion
         print_flag: whether to print metadata to screen
     """
     numslices = int(dxchange.read_hdf5(path, "/measurement/instrument/detector/dimension_y")[0])
@@ -59,6 +60,12 @@ def read_metadata(path,print_flag=True):
     kev = dxchange.read_hdf5(path, "/measurement/instrument/monochromator/energy")[0] / 1000
     angularrange = dxchange.read_hdf5(path, "/process/acquisition/rotation/range")[0]
     filename = os.path.split(path)[-1]
+    
+    if convert360: # this stuff taken from Dulan's legacy notebook, have not verified
+        numangles = int(numangles/2)
+        numrays = numrays*2
+        angularrange = ngularrange = angularrange/2 if tomo.shape[0]%2==0 else angularrange/2 - angularrange/(numangles-1)
+
     if print_flag:
         print(f'{filename}:')
         print(f'numslices: {numslices}, rays: {numrays}, numangles: {numangles}')
@@ -75,7 +82,7 @@ def read_metadata(path,print_flag=True):
             'angularrange': angularrange}
 
 def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
-              preprocess_settings={'minimum_transmission':0.01}, postprocess_settings=None, **kwargs):
+              preprocess_settings={'minimum_transmission':0.01}, postprocess_settings=None, convert360=False, **kwargs):
     """ Reads projetion data gets prepares for reconstruction (ie normalizes, takes log, filters, etc).
         Assumes APS tomoscan hdf5 format (see here: https://dxchange.readthedocs.io/en/latest/source/api/dxchange.exchange.html#)
         path: full path to .h5 file
@@ -88,6 +95,15 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
     """
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
+    
+    if convert360: # this stuff taken from Dulan's legacy notebook, have not verified
+        COR = kwargs["COR"] # Note: if convert360=True, must include COR parameter in input
+        # why -.5 on one and not on the other?
+        if tomo.shape[0]%2>0:
+            tomo = sino_360_to_180(tomo[0:-1,:,:], overlap=int(np.round((tomo.shape[2]-COR-.5))*2), rotation='right')
+        else:
+            tomo = sino_360_to_180(tomo[:,:,:], overlap=int(np.round((tomo.shape[2]-COR))*2), rotation='right')
+                        
     tomopy.normalize(tomo, flat, dark, out=tomo)
 
     if preprocess_settings:
@@ -159,7 +175,7 @@ def preprocess_tomo_orig(tomo, flat, dark,
     return tomo
 
 def mask_recon(recon,r=None):
-    """ Applies circular mask to image - all pixels outside radius set to zero. Not currently used.
+    """ Applies circular mask to image - all pixels outside radius set to zero.
         r: mask radius. None defaults to half of image width or height (whichever is larger)
     """
     # Need to add this to remove bright halo
@@ -203,12 +219,12 @@ def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,ys
     fig, axs = plt.subplots(num=fignum)
     fig.canvas.toolbar_position = 'right'
     fig.canvas.header_visible = False
-    shifted_last_proj = shift_projections(last_proj_flipped, init_cor, yshift=0)
+    shifted_last_proj = shift_projections(last_proj_flipped, 2*init_cor, yshift=0)
     img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
     plt.tight_layout()
 
-    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
-    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
+    slider_dx = widgets.FloatSlider(description='Shift X', readout=True, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
+    slider_dy = widgets.FloatSlider(description='Shift Y', readout=True, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
     # only show yshift slider if flag is True
     if yshift:
         ui = widgets.VBox([slider_dx, slider_dy])
@@ -229,7 +245,7 @@ def shift_projections(projs, COR, yshift=0):
         COR: x shift to apply
         y_shift: y shift to apply
     """
-    translateFunction = transform.SimilarityTransform(translation=(COR, yshift))
+    translateFunction = transform.SimilarityTransform(translation=(-COR, yshift))
     if projs.ndim == 2:
         shifted = transform.warp(projs, translateFunction)
     elif projs.ndim == 3:
@@ -375,7 +391,7 @@ def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0
     if not proj_downsample: proj_downsample = 1
     if init_image is None:
         init_image = astra_fbp_recon(tomo,angles,COR=COR/proj_downsample,fc=0.5,gpu=check_for_gpu())
-    tomo = shift_projections(tomo,COR/proj_downsample) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
+    tomo = shift_projections(tomo,-COR/proj_downsample) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
     recon = svmbir.recon(tomo,angles,
                               center_offset=0.0, # MUST BE ZERO TO AVOID VERY LONG COMPUTATION OF SYSTEM MATRIX
                               init_image=init_image, # init with fbp for faster convergence
@@ -453,6 +469,45 @@ def get_scratch_path():
         return scratch_echo[:-1]
     else: # not on NERSC
         return os.getcwd()
+    
+    
+def sino_360_to_180(data, overlap=0, rotation='left'):
+    """ Taken directly from Dula's legacy "reconstruction.py"
+    Converts 0-360 degrees sinogram to a 0-180 sinogram.
+    
+    Parameters
+    ----------
+    data : ndarray
+        Input 3D data.
+
+    overlap : scalar, optional
+        Overlapping number of pixels.
+
+    rotation : string, optional
+        Left if rotation center is close to the left of the
+        field-of-view, right otherwise.
+
+    Returns
+    -------
+    ndarray
+    Output 3D data.
+    """
+    dx, dy, dz = data.shape
+    lo = overlap//2
+    ro = overlap - lo
+    n = dx//2
+    out = np.zeros((n, dy, 2*dz-overlap), dtype=data.dtype)
+    if rotation == 'left':
+        weights = (np.arange(overlap)+0.5)/overlap
+        out[:, :, -dz+overlap:] = data[:n, :, overlap:]
+        out[:, :, :dz-overlap] = data[n:2*n, :, overlap:][:, :, ::-1]
+        out[:, :, dz-overlap:dz] = weights*data[:n, :, :overlap] + (weights*data[n:2*n, :, :overlap])[:, :, ::-1]
+    elif rotation == 'right':
+        weights = (np.arange(overlap)[::-1]+0.5)/overlap
+        out[:, :, :dz-overlap] = data[:n, :, :-overlap]
+        out[:, :, -dz+overlap:] = data[n:2*n, :, :-overlap][:, :, ::-1]
+        out[:, :, dz-overlap:dz] = weights*data[:n, :, -overlap:] + (weights*data[n:2*n, :, -overlap:])[:, :, ::-1]
+    return out
 
 ######### The functions below are used for ipywidgets calls #########
         
@@ -552,6 +607,6 @@ def shift_proj_difference(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_
         last_proj_flipped: flipped 180 degree projection        
         downsample_factor: Integer downsampling of projection images using local pixel averaging. None (or 1) means no downsampling 
     """
-    shifted_last_proj = shift_projections(last_proj_flipped, dx, yshift=dy)
+    shifted_last_proj = shift_projections(last_proj_flipped, 2*dx, yshift=dy)
     img.set_data(first_proj - shifted_last_proj)
-    axs.set_title(f"COR: {-downsample_factor*dx/2}, y_shift: {downsample_factor*dy/2}")
+    axs.set_title(f"COR: {downsample_factor*dx}, y_shift: {downsample_factor*dy/2}")
