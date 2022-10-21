@@ -1,3 +1,9 @@
+"""
+ALS_recon_functions.py
+Modularized functions used throughout the various notebooks. Mostly for processing, though some are for plotting
+Functions are in rough order of when they are called in ALS_recon.ipynb
+"""
+
 import sys
 import os
 import subprocess
@@ -11,23 +17,14 @@ from skimage import transform, io
 import tomopy
 import astra
 import dxchange
-from pathlib import Path
-import pandas as pd
-import copy
-import pickle
-import base64
-
 import importlib
+# checks if svmbir is installed before importing (so users who install locally aren't required to install svmbir if they won't use it)
 svmbir_spec = importlib.util.find_spec("svmbir")
-if svmbir_spec is not None:
+if svmbir_spec is not None: # this 
     import svmbir
 
-"""
-Functions are in rough order of when they are called in notebook
-Need to add comments
-"""
-
 def check_for_gpu(verbose = False):
+    """ Checks if GPU can be used for reconstruction """
     try:
         subprocess.check_output('nvidia-smi')
         if verbose:
@@ -38,6 +35,7 @@ def check_for_gpu(verbose = False):
         return False
 
 def get_directory_filelist(path,max_num=10000, verbose = False):
+    """ Copied from Dula's legacy notebook. Prints files in directory, no fancy widget. Not currently used """
     filenamelist = os.listdir(path)
     filenamelist = [x for x in filenamelist if os.path.isfile(os.path.join(path,x))]
     filenamelist.sort()
@@ -48,17 +46,11 @@ def get_directory_filelist(path,max_num=10000, verbose = False):
         sorted_file_names.append(f'{i}: {filenamelist[i]}')
     return filenamelist, sorted_file_names
 
-def make_file_selector(filelist, names, dataDir):
-    filenumber = widgets.Select(options=names, layout={'width': 'max-content'})
-    def select_file(files):
-        filename = filelist[int(files.split(":")[0])]
-        metadata = read_metadata(os.path.join(dataDir,filename))
-        return os.path.join(dataDir,filename), metadata
-    file_choice = widgets.interactive(select_file, files = filenumber)
-    
-    return file_choice
-
 def read_metadata(path,print_flag=True):
+    """ Reads metadata (slices, rays, etc) from APS tomoscan hdf5 format and returns in dictionary
+        path: full path to .h5 file
+        print_flag: whether to print metadata to screen
+    """
     numslices = int(dxchange.read_hdf5(path, "/measurement/instrument/detector/dimension_y")[0])
     numrays = int(dxchange.read_hdf5(path, "/measurement/instrument/detector/dimension_x")[0])
     pxsize = dxchange.read_hdf5(path, "/measurement/instrument/detector/pixel_size")[0] / 10.0  # /10 to convert units from mm to cm
@@ -84,6 +76,16 @@ def read_metadata(path,print_flag=True):
 
 def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
               preprocess_settings={'minimum_transmission':0.01}, postprocess_settings=None, **kwargs):
+    """ Reads projetion data gets prepares for reconstruction (ie normalizes, takes log, filters, etc).
+        Assumes APS tomoscan hdf5 format (see here: https://dxchange.readthedocs.io/en/latest/source/api/dxchange.exchange.html#)
+        path: full path to .h5 file
+        proj: which projections to read (first,last,step). None means all projections.
+        sino: which slices to read (first,last,step). None means all slices.
+        downsample_factor: Integer downsampling of projection images using local pixel averaging. None (or 1) means no downsampling 
+        prelog: if True, don't take log
+        preprocess_settings: dictionary of parameters used to process projections BEFORE log (see prelog_process_tomo)
+        postprocess_settings: dictionary of parameters used to process projections AFTER log (see postlog_process_tomo)
+    """
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
     tomopy.normalize(tomo, flat, dark, out=tomo)
@@ -96,7 +98,8 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
             tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
         return tomo, angles
     # take log
-    tomopy.minus_log(tomo, out=tomo)   
+    tomopy.minus_log(tomo, out=tomo)
+    # To Do: safety check for Inf/NaN pixels after log?
     # downsampling post-log is better
     if downsample_factor and downsample_factor!=1:
         tomo = np.asarray([transform.downscale_local_mean(proj, (downsample_factor,downsample_factor), cval=0).astype(proj.dtype) for proj in tomo])
@@ -105,6 +108,7 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
     return tomo, angles
 
 def prelog_process_tomo(tomo, args):
+    """ Apply processing steps to PROJECTIONS (not sinograms) before log. Can make this list as long as you want. """
     # sarepy ring removal (combo of 3 methods, see: https://sarepy.readthedocs.io/toc/section3_1/section3_1_6.html)
     # "small stripe" method relies on median filter along angle dimension (after sorting) 
     if 'sm_size' in args and args['sm_size']:
@@ -126,6 +130,7 @@ def prelog_process_tomo(tomo, args):
     return tomo
 
 def postlog_process_tomo(tomo, args):
+    """ Apply processing steps to PROJECTIONS (not sinograms) after log. Can make this list as long as you want. """
     # wavelet filter to remove rings (stripes in sinogram)
     if 'ringSigma' in args and args['ringSigma']:
         tomo = tomopy.remove_stripe_fw(tomo, sigma=args['ringSigma'], level=args['ringLevel'], pad=False, wname='db5')
@@ -141,6 +146,7 @@ def preprocess_tomo_orig(tomo, flat, dark,
                     ringLevel=8,  # for remove stripe fw, from reconstruction.py
                     ringWavelet='db5', # for remove stripe fw, from reconstruction.py
                     **kwargs):
+    """ Copied from Dula's legacy notebook. Processes projections AND takes log. Not currently used """
 
     # median filter -- WHY ACROSS ROTATION AXIS?
     tomopy.misc.corr.remove_outlier(tomo, outlier_diff, size=outlier_size, axis=0, ncore=None, out=tomo)
@@ -153,24 +159,76 @@ def preprocess_tomo_orig(tomo, flat, dark,
     return tomo
 
 def mask_recon(recon,r=None):
+    """ Applies circular mask to image - all pixels outside radius set to zero. Not currently used.
+        r: mask radius. None defaults to half of image width or height (whichever is larger)
+    """
     # Need to add this to remove bright halo
     x, y = np.arange(recon.shape[1]), np.arange(recon.shape[2])
     X,Y = np.meshgrid(x-x.mean(),y-y.mean(),indexing='ij')
     if r is None:
-        r = np.maximum(recon.shape[1],recon.shape[2])
+        r = np.maximum(recon.shape[1],recon.shape[2])/2
     recon[:,(X**2 + Y**2 > (r)**2)] = 0
     return recon
 
 def auto_find_cor(path):
+    """ Reads first and SECOND TO LAST projection image and uses cross-correlation to estimate COR. Uses tomopy implementation.
+        Note: COR converted to units of pixels FROM CENTER (ie perfectly centered projections have a COR=0). Tomopy uses pixels from edge. 
+        path: full path to .h5 file    
+    """
     metadata = read_metadata(path,print_flag=False)
-    lastcor = metadata['numangles']-1 # why minus 1? Makes comparison with second to last projection
-    # lastcor = metadata['numangles']
+    lastcor = metadata['numangles']-1 # Copied from Dula's legacy notebook. Why minus 1? Makes comparison with second to last projection
+    # lastcor = metadata['numangles'] # This would take last projection
     tomo, _ = read_data(path, proj=slice(0,lastcor,lastcor-1),downsample_factor=None)
     cor = tomopy.find_center_pc(tomo[0], tomo[-1], tol=0.25)
     cor = cor - tomo.shape[2]/2
     return cor, tomo
 
+def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,yshift=False,continuous_update=True):
+    """ Creates projection overlay and shift sliders for manual COR selection
+        first_proj: first projection image
+        last_proj_flipped: flipped 180 degree projection
+        init_cor: initial COR of plot. Usually chosen with auto_find_cor
+        fignum: matplotlib figure number. Kind of irrelevant
+        yshift: whether to allow up/down shift or not
+        continuous_update: If True, slider will update on any movement (more responsive but potentially laggy). If false, will only update when slider is released.
+        
+        Returns:
+        axs: matplotib axis handle to plot
+        img: matplotlib image handle to image
+        ui: ipywidgets handle to slider functionality
+        sliders: ipywidgets handle to sliders
+    """
+    
+    if plt.fignum_exists(num=fignum): plt.close(fignum)
+    fig, axs = plt.subplots(num=fignum)
+    fig.canvas.toolbar_position = 'right'
+    fig.canvas.header_visible = False
+    shifted_last_proj = shift_projections(last_proj_flipped, init_cor, yshift=0)
+    img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
+    plt.tight_layout()
+
+    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
+    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
+    # only show yshift slider if flag is True
+    if yshift:
+        ui = widgets.VBox([slider_dx, slider_dy])
+        axs.set_title(f"COR: 0, y_shift: 0")
+    else:
+        ui = widgets.VBox([slider_dx])
+        axs.set_title(f"COR: 0")
+
+    sliders = widgets.interactive_output(shift_proj_difference,{'dx':slider_dx,'dy':slider_dy,
+                                         'img':widgets.fixed(img),'axs':widgets.fixed(axs),
+                                         'first_proj':widgets.fixed(first_proj),'last_proj_flipped':widgets.fixed(last_proj_flipped)})
+    
+    return axs, img, ui, sliders
+
 def shift_projections(projs, COR, yshift=0):
+    """ Applies tranlation to image using scikit-image. Used for manual COR finding.
+        projs: 2D projection images to translate (can be one or multiple in a stack)
+        COR: x shift to apply
+        y_shift: y shift to apply
+    """
     translateFunction = transform.SimilarityTransform(translation=(COR, yshift))
     if projs.ndim == 2:
         shifted = transform.warp(projs, translateFunction)
@@ -183,14 +241,20 @@ def shift_projections(projs, COR, yshift=0):
     return shifted
 
 def astra_fbp_recon(tomo,angles,COR=0,fc=1,gpu=False,**kwargs):
-    
+    """ Filtred backprojection reconstruction using 2D Astra backprojection operator (ie slice by slice).
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles: projection angles, in radians 
+        COR: center of rotation, in pixels from center of image
+        fc: normalized LP filter cutoff (1 = no LP filter, 0 = filter everything)
+        gpu: whether to use Astra GPU or CPU implementation
+    """
     if fc != 1:
+        # Apply 1D LP filter to sinogram along ray dimension
         N = np.minimum(100,tomo.shape[2])
         lpf = signal.firwin(N,fc) # time domain filter taps
-        _, LPF = np.abs(signal.freqz(lpf,a=1,worN=tomo.shape[2],whole=True)) # freq domain filter
-        tomo = np.real(ifft( fft(tomo, axis=2) * LPF, axis=2)) # apply filter in freq domain
-        # tomo = signal.lfilter(b,1,axis=2)
-        # tomo = signal.filtfilt(b,1,tomo,axis=2)
+        _, LPF = np.abs(signal.freqz(lpf,a=1,worN=tomo.shape[2],whole=True)) # freq domain filter, part 1 (abs keeps filter zero phase -- no pixel shift)
+        tomo = np.real(ifft( fft(tomo, axis=2) * LPF, axis=2)) # apply filter in freq domain, part 2
+        # tomo = signal.filtfilt(b,1,tomo,axis=2) # apply filter in time domain. Note: filtfilt ensures no pixel shift, but overfilters a little (ie fc is not technically accurate)
     
     if gpu:
         rec = tomopy.recon(tomo, angles,
@@ -205,7 +269,13 @@ def astra_fbp_recon(tomo,angles,COR=0,fc=1,gpu=False,**kwargs):
     return rec
 
 def astra_cgls_recon(tomo,angles,COR=0,num_iter=20,gpu=False,**kwargs):
-    
+    """ Conjugate gradient least squares reconstruction using 2D Astra backprojection operator (ie slice by slice).
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles: projection angles, in radians 
+        COR: center of rotation, in pixels from center of image
+        num_iter: how many iterations to perform
+        gpu: whether to use Astra GPU or CPU implementation
+    """    
     if gpu:
         rec = tomopy.recon(tomo, angles,
                            center=COR + tomo.shape[2]/2,
@@ -219,6 +289,17 @@ def astra_cgls_recon(tomo,angles,COR=0,num_iter=20,gpu=False,**kwargs):
     return rec
 
 def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,fc=1):
+    """ Filtered back projection reconstruction using 3D Astra backprojection operator.
+        Useful if you want to define custom projection geometry in case slices are not truly separable (eg. misalignment).
+        Requires more memory than slice-by-slice reconstruction (ie whole sinogram stack) so may need to downsample data. Not sure how it affects speed. 
+        Note: Astra 3D projectors only work on GPU, so this requires GPU 
+        
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles_or_vectors: EITHER an array of projection angles (same as normal) or a list of custom projection vectors produced by astra_projection_wrapper
+        vectors: If True, vector list was given. If False, a standard array of angles were given.
+        COR: center of rotation, in pixels from center of image
+        fc: normalized LP filter cutoff (1 = no LP filter, 0 = filter everything)
+    """        
     numslices = tomo.shape[1]
     numrays = tomo.shape[2]
     if vectors: # vectors created with astra_projection_wrapper
@@ -251,6 +332,17 @@ def astra_fbp_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,fc=1):
     return rec
 
 def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,num_iter=20):
+    """ Conjugate gradient least squares reconstruction using 3D Astra backprojection operator.
+        Useful if you want to define custom projection geometry in case slices are not truly separable (eg. misalignment).
+        Requires more memory than slice-by-slice reconstruction (ie whole sinogram stack) so may need to downsample data. Not sure how it affects speed. 
+        Note: Astra 3D projectors only work on GPU, so this requires GPU 
+        
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles_or_vectors: EITHER an array of projection angles (same as normal) or a list of custom projection vectors produced by astra_projection_wrapper
+        vectors: If True, vector list was given. If False, a standard array of angles were given.
+        COR: center of rotation, in pixels from center of image
+        num_iter: how many iterations to perform
+    """            
     numslices = tomo.shape[1]
     numrays = tomo.shape[2]
     if vectors: # vectors created with astra_projection_wrapper
@@ -273,6 +365,14 @@ def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,num_iter=20):
     return rec
 
 def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None):
+    """ Super Voxel Model Based Image Reconstruction.       
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles: projection angles, in radians 
+        COR: center of rotation, in pixels from center of image
+        proj_downsample: Same as downsample_factor -- integer downsampling of projection images using local pixel averaging. None (or 1) means no downsampling 
+        For other parameters, see SVMBIR documetnation (https://svmbir.readthedocs.io/en/latest/index.html)
+    """
+    if not proj_downsample: proj_downsample = 1
     if init_image is None:
         init_image = astra_fbp_recon(tomo,angles,COR=COR/proj_downsample,fc=0.5,gpu=check_for_gpu())
     tomo = shift_projections(tomo,COR/proj_downsample) # must manually shift COR. Shifting SVMBIR projector requires recomputing system matrix
@@ -288,7 +388,14 @@ def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0
     recon = recon.transpose(0,2,1) # to match tomopy format
     return recon
       
-def svmbir_fbp(tomo,angles,cor=0,num_threads=None): 
+def svmbir_fbp(tomo,angles,cor=0,num_threads=None):
+    """ Use SVMBIR projector to do regular FBP reconstruction. Only really useful as a faster test of SVMBIR projectors.
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles: projection angles, in radians 
+        cor: center of rotation, in pixels from center of image
+        num_threads: How many CPU threads to use. None defaults to all available threads
+    """
+    # Using scikit-image implementation of ramp filter, but I've noticed it only works for an even number of rays? I'm sure there's better implementations out there.
     fourier_filter = transform.radon_transform._get_fourier_filter(tomo.shape[2],'ramp').squeeze()
     filtered_tomo = np.real(ifft( fft(tomo, axis=2) * fourier_filter, axis=2))
     rec = svmbir.backproject(filtered_tomo, angles,
@@ -301,6 +408,12 @@ def svmbir_fbp(tomo,angles,cor=0,num_threads=None):
 
 
 def tomopy_gridrec_recon(tomo,angles,COR=0,fc=1,butterworth_order=2,**kwargs):
+    """ Tomopy's gridrec reconstruction. Worst image quality but very fast. Useful for fast feedback on Cori shared CPU node
+        tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
+        angles: projection angles, in radians 
+        center: center of rotation, in pixels from center of image
+        For other parameters see Tomopy documentation (https://tomopy.readthedocs.io/en/latest/ipynb/tomopy.html)
+    """
     rec = tomopy.recon(tomo, angles,
                        center=COR + tomo.shape[2]/2,
                        algorithm='gridrec',
@@ -310,6 +423,13 @@ def tomopy_gridrec_recon(tomo,angles,COR=0,fc=1,butterworth_order=2,**kwargs):
 
 
 def cache_svmbir_projector(img_size,num_angles,num_threads=None):
+    """ Creates a SVMBIR system matrix cache as quickly as possible by and automatically saves in location set by get_svmbir_cache_dir.
+        Cache depends on both image size, projections angles (assumed evenly distributed from 0 to 180), and COR (assumed 0).
+        
+        img_size: 2D image dimensions. Can be list with multiple entries (will cache all of them)
+        num_angles: Number of projection angles. Can be list with multiple entries (will cache all of them)
+        num_threads: How many CPU threads to use. None defaults to all available threads        
+    """
     for i,(sz,nang) in enumerate(zip(img_size,num_angles)):
         print(f"Starting size={sz[0]}x{sz[1]}")
         img = svmbir.phantom.gen_shepp_logan(sz[0],sz[1])[np.newaxis]
@@ -323,42 +443,22 @@ def cache_svmbir_projector(img_size,num_angles,num_threads=None):
         print(f"Finisehd: time={t}")    
         
 def get_svmbir_cache_dir():
+    """ Sets location of SVMBIR system matrix cache. Must be accessible by all users, otherwise SVMBIR will take prohibitively long """
     return '//global/cfs/cdirs/als/users/tomography_notebooks/svmbir_cache'
-    # s = os.popen("echo $NERSC_HOST")
-    # out = s.read()
-    # if 'cori' in out:
-    #     return '/global/cscratch1/sd/dperl/svmbir_cache'
-    # elif 'perlmutter' in out:
-    #     return '/pscratch/sd/d/dperl/svmbir_cache'
-    # else:
-    #     sys.exit('not or cori or perlmutter -- throwing error')
 
 def get_scratch_path():
+    """ Gets path to user's scratch if on NERSC, otherwise returns current directory """
     scratch_echo = subprocess.check_output('echo $SCRATCH',shell=True).decode("utf-8")
     if "scratch" in scratch_echo: # on NERSC
         return scratch_echo[:-1]
     else: # not on NERSC
         return os.getcwd()
 
-def get_batch_template(algorithm="astra"):
-    s = os.popen("echo $NERSC_HOST")
-    out = s.read()
-    if algorithm == "svmbir":
-        if 'cori' in out:
-            return os.path.join('slurm_scripts','svmbir_template_job-cori.txt')
-        elif 'perlmutter' in out:
-            return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
-        else:
-            sys.exit('not on cori or perlmutter -- throwing error')
-    if 'cori' in out:
-        return os.path.join('slurm_scripts','astra_template_job-cori.txt')
-    elif 'perlmutter' in out:
-        return os.path.join('slurm_scripts','astra_template_job-perlmutter.txt')
-    else:
-        sys.exit('not on cori or perlmutter -- throwing error')
-
-
+######### The functions below are used for ipywidgets calls #########
+        
 def plot_recon(recon,fignum=1,figsize=4,clims=None):
+    """ Creates a plot and colorbar slider for 2D reconstruction. Not currently used """
+
     if clims is None:
         clims = [np.percentile(recon,1),np.percentile(recon,99)]
     if plt.fignum_exists(fignum): plt.close(fignum)
@@ -373,6 +473,8 @@ def plot_recon(recon,fignum=1,figsize=4,clims=None):
     return img, axs, clim_slider
 
 def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
+    """ Creates a side-by-side plot of two 2D reconstructions with a shared and colorbar slider. Only used in Astra/SVMIBR comparison """
+    
     if plt.fignum_exists(fignum): plt.close(fignum)
     fig, axs = plt.subplots(1,2,num=fignum,figsize=(2*figsize,figsize),sharex=True,sharey=True)
     img = [None, None]
@@ -391,6 +493,13 @@ def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
     return axs, img, clim_slider
 
 def set_proj(img,path,proj_num,hline_handles=None):
+    """ Sets projection image to display. Used by projection plotting sliders
+        img: matplotlib image handle(s)
+        path: full path to .h5 file
+        proj_num: projection number to display
+        hline_handles: horizontal line handles to update (eg, on recon image). Not currently used
+    """
+    
     tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None, prelog=True)
     if not isinstance(img, list):
         img = [img]
@@ -403,6 +512,13 @@ def set_proj(img,path,proj_num,hline_handles=None):
             h.set_ydata([proj_num,proj_num])
 
 def set_sino(img,path,sino_num,hline_handles=None):
+    """ Sets sinogram slice to display. Used by sinogram plotting sliders
+        img: matplotlib image handle(s)
+        path: full path to .h5 file
+        sino_num: slice number to display
+        hline_handles: horizontal line handles to update (eg, on projection image). Not currently used
+    """
+
     tomo, _ = read_data(path, sino=slice(sino_num,sino_num+1,1), downsample_factor=None, prelog=True)
     if not isinstance(img, list):
         img = [img]
@@ -415,37 +531,27 @@ def set_sino(img,path,sino_num,hline_handles=None):
             h.set_ydata([sino_num,sino_num])
         
 def set_clim(img,clims):
+    """ Sets grayscale limits on image. Used by colorscale sliders
+        img: matplotlib image handle(s)
+        clim: list of grayscale values: [min, max]
+    """
+
     if not isinstance(img, list):
         img = [img]
     for im in img:
         im.set_clim(vmin=clims[0],vmax=clims[1])        
-    
-def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,yshift=False,continuous_update=True):
-    if plt.fignum_exists(num=fignum): plt.close(fignum)
-    fig, axs = plt.subplots(num=fignum)
-    fig.canvas.toolbar_position = 'right'
-    fig.canvas.header_visible = False
-    shifted_last_proj = shift_projections(last_proj_flipped, init_cor, yshift=0)
-    img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
-    plt.tight_layout()
+        
 
-    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
-    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
-    # only show yshift slider if flag is True
-    if yshift:
-        ui = widgets.VBox([slider_dx, slider_dy])
-        axs.set_title(f"COR: 0, y_shift: 0")
-    else:
-        ui = widgets.VBox([slider_dx])
-        axs.set_title(f"COR: 0")
-
-    sliders = widgets.interactive_output(shift_proj,{'dx':slider_dx,'dy':slider_dy,
-                                         'img':widgets.fixed(img),'axs':widgets.fixed(axs),
-                                         'first_proj':widgets.fixed(first_proj),'last_proj_flipped':widgets.fixed(last_proj_flipped)})
-    
-    return axs, img, ui, sliders
-
-def shift_proj(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_factor=1):
+def shift_proj_difference(dx,dy,img,axs,first_proj,last_proj_flipped,downsample_factor=1):
+    """ Updates overalyed 0/180 projection difference. Used by plot_0_and_180_proj_diff
+        dx: x shift (COR)
+        dy: y shift
+        img: matplotlib image handle
+        axs: matplotlib axes handle
+        first_proj: first projection image
+        last_proj_flipped: flipped 180 degree projection        
+        downsample_factor: Integer downsampling of projection images using local pixel averaging. None (or 1) means no downsampling 
+    """
     shifted_last_proj = shift_projections(last_proj_flipped, dx, yshift=dy)
     img.set_data(first_proj - shifted_last_proj)
     axs.set_title(f"COR: {-downsample_factor*dx/2}, y_shift: {downsample_factor*dy/2}")
