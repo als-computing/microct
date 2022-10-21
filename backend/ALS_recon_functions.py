@@ -391,7 +391,7 @@ def plot_recon_comparison(recon1,recon2,titles=['',''],fignum=1,figsize=4):
     return axs, img, clim_slider
 
 def set_proj(img,path,proj_num,hline_handles=None):
-    tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None, prelog=False)
+    tomo, _ = read_data(path, proj=slice(proj_num,proj_num+1,1), downsample_factor=None, prelog=True)
     if not isinstance(img, list):
         img = [img]
     for im in img:
@@ -403,7 +403,7 @@ def set_proj(img,path,proj_num,hline_handles=None):
             h.set_ydata([proj_num,proj_num])
 
 def set_sino(img,path,sino_num,hline_handles=None):
-    tomo, _ = read_data(path, sino=slice(sino_num,sino_num+1,1), downsample_factor=None, prelog=False)
+    tomo, _ = read_data(path, sino=slice(sino_num,sino_num+1,1), downsample_factor=None, prelog=True)
     if not isinstance(img, list):
         img = [img]
     for im in img:
@@ -420,7 +420,7 @@ def set_clim(img,clims):
     for im in img:
         im.set_clim(vmin=clims[0],vmax=clims[1])        
     
-def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,yshift=False):
+def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,yshift=False,continuous_update=True):
     if plt.fignum_exists(num=fignum): plt.close(fignum)
     fig, axs = plt.subplots(num=fignum)
     fig.canvas.toolbar_position = 'right'
@@ -429,8 +429,8 @@ def plot_0_and_180_proj_diff(first_proj,last_proj_flipped,init_cor=0,fignum=1,ys
     img = axs.imshow(first_proj - shifted_last_proj, cmap='gray',vmin=-.1,vmax=.1)
     plt.tight_layout()
 
-    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=True)
-    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=True)
+    slider_dx = widgets.FloatSlider(description='Shift X', readout=False, min=-800, max=800, step=0.25, value=init_cor, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
+    slider_dy = widgets.FloatSlider(description='Shift Y', readout=False, min=-800, max=800, step=0.25, value=0, layout=widgets.Layout(width='50%'),continuous_update=continuous_update)
     # only show yshift slider if flag is True
     if yshift:
         ui = widgets.VBox([slider_dx, slider_dy])
