@@ -43,18 +43,22 @@ def create_batch_script(settings):
     with open (get_batch_template(), "r") as t:
         template = t.read()
 
+    s = os.popen("echo $USER")
+    username = s.read()[:-1]
+    user_template = template.replace('<username>',username)
+        
     configs_dir = Path(os.path.join(settings["data"]["output_path"],"configs/"))
     if not configs_dir.exists():
         os.mkdir(configs_dir)
-
+       
     config_script_name = os.path.join(configs_dir,"config_"+settings["data"]["name"]+".sh")    
     enc = dictionary_prep(settings)
     with open(config_script_name, 'w') as f:
-        script = template
+        script = user_template
         script += "\n"
-        script += "cd " + os.getcwd()
-        script += "\n"
-        script += "shifter python backend/batch_recon.py"
+        # script += "shifter cd " + os.getcwd()
+        # script += "\n"
+        script += f"shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
         script += " '" + enc + "'"
         f.write(script)
         f.close()
@@ -139,12 +143,19 @@ def mpi4py_svmbir_recon(settings):
 
 
 def main():
+    print(f"Starting ALS_batch_recon")
+    tic = time.time()
     string = sys.argv[:][-1] 
     settings = pickle.loads(base64.b64decode(string.encode('utf-8')))
     if 'svmbir_settings' in settings:
         mpi4py_svmbir_recon(settings)
+        print(f"SVMBIR...")
     else:
+        print(f"Astra...")
         batch_astra_recon(settings)
+       
+    print(f"Finished ALS_batch_recon, took {time.time()-tic} sec")
+
     
 if __name__ == '__main__':
     main()

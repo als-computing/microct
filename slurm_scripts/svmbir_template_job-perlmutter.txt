@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH -q regular
 #SBATCH -A als
-#SBATCH --image=dperl/tomocam:latest
+#SBATCH --volume=/global/cfs/cdirs/als/data_mover/share/<username>:/alsuser;/global/cfs/cdirs/als/data_mover/8.3.2/raw:/alsdata:ro
 #SBATCH -C cpu
 #SBATCH -N 10
 #SBATCH -n 1280
