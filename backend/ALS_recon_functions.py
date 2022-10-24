@@ -69,7 +69,7 @@ def read_metadata(path,convert360=False,print_flag=True):
     if print_flag:
         print(f'{filename}:')
         print(f'numslices: {numslices}, rays: {numrays}, numangles: {numangles}')
-        print(f'angularrange: {angularrange}, \pxsize: {pxsize*10000} um, distance: {propagation_dist} mm. energy: {kev} keV')
+        print(f'angularrange: {angularrange}, pxsize: {pxsize*10000} um, distance: {propagation_dist} mm. energy: {kev} keV')
         if kev>100:
             print('white light mode detected; energy is set to 30 kev for the phase retrieval function')
         

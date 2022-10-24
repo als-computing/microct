@@ -23,7 +23,7 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
         postprocess_settings: dictionary of parameters used to process projections AFTER log (see postlog_process_tomo)
         use_gpu: whether to use Astra GPU or CPU implementation
     """
-   
+    metadata = als.read_metadata(path, print_flag=False)
     tomo, angles = als.read_data(path,
                                  proj=angles_ind, sino=slices_ind,
                                  downsample_factor=proj_downsample,
@@ -45,6 +45,10 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
 
     if mask:
         recon = als.mask_recon(recon)
+    
+    recon /= metadata['pxsize']  # convert reconstructed voxel values from 1/pixel to 1/cm
+    if metadata['pxsize'] < 1e-6: # if less than 10 nm resolution
+        recon *= 1000 # Dula's request
     
     return recon, tomo
 
