@@ -56,8 +56,6 @@ def create_batch_script(settings):
     with open(config_script_name, 'w') as f:
         script = user_template
         script += "\n"
-        # script += "shifter cd " + os.getcwd()
-        # script += "\n"
         script += f"shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
         script += " '" + enc + "'"
         f.write(script)
@@ -102,15 +100,16 @@ def batch_astra_recon(settings):
         print(f"Starting recon of slices {start_iter}-{stop_iter}...",end=' ')
         tic = time.time()
 
-        recon, _ = helper.default_reconstruction(path=settings["data"]["data_path"],
-                               angles_ind=settings["data"]['angles_ind'],
-                               slices_ind=slice(start_iter,stop_iter,1),
-                               COR=settings["recon"]["COR"],
-                               proj_downsample=settings["data"]["proj_downsample"],
-                               fc=settings["recon"]["fc"],
-                               preprocessing_settings=settings["preprocess"],
-                               postprocessing_settings=settings["postprocess"],
-                               use_gpu=use_gpu)
+        recon, _ = helper.reconstruct(path=settings["data"]["data_path"],
+                                      angles_ind=settings["data"]['angles_ind'],
+                                      slices_ind=slice(start_iter,stop_iter,1),
+                                      COR=settings["recon"]["COR"],
+                                      method=settings["recon"]["method"],
+                                      proj_downsample=settings["data"]["proj_downsample"],
+                                      fc=settings["recon"]["fc"],
+                                      preprocessing_settings=settings["preprocess"],
+                                      postprocessing_settings=settings["postprocess"],
+                                      use_gpu=use_gpu)
 
         print(f"Finished: took {time.time()-tic} sec. Saving files...")
         dxchange.write_tiff_stack(recon, fname=save_name, start=start_iter)
