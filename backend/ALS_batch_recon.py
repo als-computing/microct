@@ -1,3 +1,8 @@
+"""
+ALS_batch_recon.py
+Functions that used to either set up reconstruction batch jobs, or used within the batch jobs  
+"""
+
 import sys
 import os
 import multiprocessing as mp
@@ -5,7 +10,6 @@ os.environ['NUMEXPR_MAX_THREADS'] = str(mp.cpu_count()) # to avoid numexpr warni
 import numexpr
 import numpy as np
 import dxchange
-# import pandas as pd
 import base64
 import pickle
 import time
@@ -14,24 +18,47 @@ from pathlib import Path
 import ALS_recon_functions as als
 import ALS_recon_helper as helper
 
+def get_batch_template(algorithm="astra"):
+    """ Gets path to appropriate batch scrpit template, depending on whether using Astra or SVMBIR, on Cori or Perlmutter """
+    
+    s = os.popen("echo $NERSC_HOST")
+    out = s.read()
+    if algorithm == "svmbir":
+        if 'cori' in out:
+            return os.path.join('slurm_scripts','svmbir_template_job-cori.txt')
+        elif 'perlmutter' in out:
+            return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
+        else:
+            sys.exit('not on cori or perlmutter -- throwing error')
+    if 'cori' in out:
+        return os.path.join('slurm_scripts','astra_template_job-cori.txt')
+    elif 'perlmutter' in out:
+        return os.path.join('slurm_scripts','astra_template_job-perlmutter.txt')
+    else:
+        sys.exit('not on cori or perlmutter -- throwing error')
 
 def create_batch_script(settings):
+    """ Completes batch script from template by adding reconstruction settings """
     
-    with open (als.get_batch_template(), "r") as t:
+    with open (get_batch_template(), "r") as t:
         template = t.read()
 
+    s = os.popen("echo $USER")
+    username = s.read()[:-1]
+    user_template = template.replace('<username>',username)
+        
     configs_dir = Path(os.path.join(settings["data"]["output_path"],"configs/"))
     if not configs_dir.exists():
         os.mkdir(configs_dir)
-
+       
     config_script_name = os.path.join(configs_dir,"config_"+settings["data"]["name"]+".sh")    
     enc = dictionary_prep(settings)
     with open(config_script_name, 'w') as f:
-        script = template
+        script = user_template
         script += "\n"
-        script += "cd " + os.getcwd()
-        script += "\n"
-        script += "shifter python backend/batch_recon.py"
+        # script += "shifter cd " + os.getcwd()
+        # script += "\n"
+        script += f"shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
         script += " '" + enc + "'"
         f.write(script)
         f.close()
@@ -40,7 +67,7 @@ def create_batch_script(settings):
 
 
 def dictionary_prep(dictionary):
-    '''
+    ''' Encodes reconstruction parameter dictionary into string 
     Input: 
     dictionary: single dictionary of settings
     Returns 
@@ -52,6 +79,8 @@ def dictionary_prep(dictionary):
 
 
 def batch_astra_recon(settings): 
+    """ Perform Astra reconstruction using encoded settings string """
+
     use_gpu = als.check_for_gpu()
 
     nchunk = 50 
@@ -88,6 +117,8 @@ def batch_astra_recon(settings):
     print("Done")
     
 def mpi4py_svmbir_recon(settings):
+    """ Perform SVMBIR reconstruction using encoded settings string. Parallelize over slices using mpi4py """
+
     from mpi4py import MPI
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
@@ -112,12 +143,19 @@ def mpi4py_svmbir_recon(settings):
 
 
 def main():
+    print(f"Starting ALS_batch_recon")
+    tic = time.time()
     string = sys.argv[:][-1] 
     settings = pickle.loads(base64.b64decode(string.encode('utf-8')))
     if 'svmbir_settings' in settings:
         mpi4py_svmbir_recon(settings)
+        print(f"SVMBIR...")
     else:
+        print(f"Astra...")
         batch_astra_recon(settings)
+       
+    print(f"Finished ALS_batch_recon, took {time.time()-tic} sec")
+
     
 if __name__ == '__main__':
     main()

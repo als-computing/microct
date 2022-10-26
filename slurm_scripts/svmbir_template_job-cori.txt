@@ -2,6 +2,7 @@
 #SBATCH -q regular
 #SBATCH -A als
 #SBATCH --image=dperl/tomocam:latest
+#SBATCH --volume=/global/cfs/cdirs/als/data_mover/share/<username>:/alsuser;/global/cfs/cdirs/als/data_mover/8.3.2/raw:/alsdata:ro
 #SBATCH -C haswell
 #SBATCH -N 40
 #SBATCH -n 1280
@@ -11,3 +12,4 @@
 #SBATCH -J tomo832
 
 export NUMEXPR_MAX_THREADS=999
+export HDF5_USE_FILE_LOCKING=FALSE

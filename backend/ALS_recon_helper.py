@@ -1,3 +1,9 @@
+"""
+ALS_recon_helper.py
+Functions that control the layout and backend of main interactive parameter selcetion cell in ALS_recon.ipynb
+The distinction between these functions and those in ALS_recon_functons.py is a little arbitrary, maybe they should be reorganized
+"""
+
 import os
 import time
 import numpy as np
@@ -6,16 +12,24 @@ import ALS_recon_functions as als
 
 
 def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
-                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, use_gpu=False):
+                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, mask=True, use_gpu=False):
+    """ This is what the ALS_recon notebook calls for all reconstructions (except SVMBIR cells) -- can use fbp, cgls, or something else, depending on machine/resources
+    
+        path: full path to .h5 file
+        angles_ind: which projections to read (first,last,step). None means all projections.
+        slices_ind: which slices to read (first,last,step). None means all slices.
+        downsample_factor: Integer downsampling of projection images using local pixel averaging. None (or 1) means no downsampling 
+        preprocess_settings: dictionary of parameters used to process projections BEFORE log (see prelog_process_tomo). Note: important to have default minimum_transmission
+        postprocess_settings: dictionary of parameters used to process projections AFTER log (see postlog_process_tomo)
+        use_gpu: whether to use Astra GPU or CPU implementation
     """
-    This is what ALS_recon notebook calls for all reconstructions -- can use fbp, cgls, or something else, depending on machine/resources
-    """
-   
+    metadata = als.read_metadata(path, print_flag=False)
     tomo, angles = als.read_data(path,
                                  proj=angles_ind, sino=slices_ind,
                                  downsample_factor=proj_downsample,
                                  preprocess_settings=preprocessing_settings,
-                                 postprocess_settings=postprocessing_settings)
+                                 postprocess_settings=postprocessing_settings,
+                                 mask=True)
 
     if use_gpu: # have GPU
         recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
@@ -29,6 +43,13 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
         else: # on Cori CPU node or not NERSC -- assume slow so use gridrec
             recon = als.tomopy_gridrec_recon(tomo, angles, COR=COR/proj_downsample, fc=fc)
 
+    if mask:
+        recon = als.mask_recon(recon)
+    
+    recon /= metadata['pxsize']  # convert reconstructed voxel values from 1/pixel to 1/cm
+    if metadata['pxsize'] < 1e-6: # if less than 10 nm resolution
+        recon *= 1000 # Dula's request
+    
     return recon, tomo
 
 def show_slice_reconstruction(path, slice_num,
@@ -42,6 +63,21 @@ def show_slice_reconstruction(path, slice_num,
                               img_handle,
                               sino_handle,
                               hline_handle):
+    """ Wrapper for reconstruction_parameter_options to update the 2D reconstruction in main parameter selection cell (ie. what's run when you press the green "Reconstruct" button).
+        Interfaces with reconstruction_parameter_options -- if you want to add another parameter option here, you need to create a widget for it there too.
+    
+        path: full path to .h5 file
+        slice_num: which slice to reconstruct
+        proj_downsample: Integer downsampling of projection images using local pixel averaging. None (or 1) means no downsampling 
+        angles_downsample: Integer downsampling of angles (no downsampling, just skips angles). None (or 1) means use all angless 
+        img_handle: matplotlib image handle for reconstruction
+        sino_handle: matplotlib image handle for associated sinogram - only if you want to update a sinogram image every time you change the recon slice. Not currently used.
+        hline_handle: matplotlib horizontal line handle - only if you want to update a line on a projection image every time you change the recon slice. Not currently used.
+        use_gpu: whether to use Astra GPU or CPU implementation
+        
+        * For the selectable parameters, see descriptions in ALS_recon.ipynb *        
+    """
+    
     
     slices_ind = slice(slice_num,slice_num+1,1)
     angles_ind = slice(0,-1,angles_downsample)
@@ -60,11 +96,18 @@ def show_slice_reconstruction(path, slice_num,
     if sino_handle: sino_handle.set_data(tomo.squeeze())
     if hline_handle: hline_handle.set_ydata([slice_num,slice_num])
 
-def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,sino_handle,hline_handle):
+def reconstruction_parameter_options(path,cor_init,use_gpu,img_handle,sino_handle,hline_handle):
+    """ Creates widgets for every parameter required by show_slice_reconstruction, then puts into Tabs widgets creates Reconstruction button functionality
+        path: full path to .h5 file
+        cor_init: initial COR to use
+        use_gpu: whether to use Astra GPU or CPU implementation
+        img_handle: matplotlib image handle for reconstruction
+        sino_handle: matplotlib image handle for associated sinogram - only if you want to update a sinogram image every time you change the recon slice. Not currently used.
+        hline_handle: matplotlib horizontal line handle - only if you want to update a line on a projection image every time you change the recon slice. Not currently used.
     """
-        Create widgets for every parameter, then put into Tabs widgets and interactive_output
-    """
-    ################## Common Parameters ##################################    
+    
+    metadata = als.read_metadata(path, print_flag=False)
+    #################################################### Common Parameters Tab ####################################################    
     parameter_widgets = {}
     # Angle downsample    
     angle_downsample_widget = widgets.Dropdown(
@@ -103,11 +146,6 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
     )
     parameter_widgets['fc'] = fc_widget
     # Slice number   
-    # slice_num_widget = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
-    #                                      min=0,
-    #                                      max=metadata['numslices']-1,
-    #                                      value=metadata['numslices']//2,
-    #                                      continuous_update=False)
     slice_num_slider = widgets.IntSlider(description='Slice:', layout=widgets.Layout(width='100%'),
                                          min=0,
                                          max=metadata['numslices']-1,
@@ -119,11 +157,11 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
                                          max=metadata['numslices']-1,
                                          value=metadata['numslices']//2,
                                          continuous_update=False)
-    widgets.link((slice_num_slider, 'value'), (slice_num_text, 'value'))
+    widgets.link((slice_num_slider, 'value'), (slice_num_text, 'value')) # link the slider and text box so they always have the same value
     slice_num_widget = widgets.HBox([slice_num_slider,slice_num_text])
     parameter_widgets['slice_num'] = slice_num_widget
 
-    ################## Ring Removal Parameters ##################################    
+    #################################################### Ring Removal Parameters Tab ####################################################    
     ringRemoval_parameter_widgets = {}
     # Sarepy small size
     sarepy_small_size_widget = widgets.BoundedIntText(description='Sarepy Small Ring Size:', layout=widgets.Layout(width='90%'),
@@ -172,7 +210,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
     )
     ringRemoval_parameter_widgets['ringLevel'] = ringLevel_widget
 
-    ################## Additional Parameters ##################################    
+    #################################################### Additional Parameters Tab ####################################################
     additional_parameter_widgets = {}
     # Minimum transmission    
     minTranmission_widget = widgets.BoundedFloatText(description='Min Trans:', layout=widgets.Layout(width='90%'),
@@ -202,7 +240,9 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
     )
     additional_parameter_widgets['outlier_size'] = outlierSize_widget
 
-    ########################################################################################################   
+    #################################################### Create Tabs and Reconstruct Button ####################################################   
+    
+    # Reconstruct button
     reconstruct_button = widgets.Button(
         description='Reconstruct',
         disabled=False,
@@ -216,6 +256,7 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
     )
     reconstruction_box = widgets.HBox([reconstruct_button,reconstruct_status])
     
+    # This controls what happens when you press the Reconstruct button (ie call show_slice_reconstruction)
     out = widgets.Output()
     def reconstruct_callback(b):
         with out:
@@ -242,9 +283,9 @@ def reconstruction_parameter_options(path,metadata,cor_init,use_gpu,img_handle,s
                             hline_handle=hline_handle
                             )
             reconstruct_status.value = f"Finished: took {time.time()-tic:.1f} sec"
-
     reconstruct_button.on_click(reconstruct_callback)   
 
+    # Create tab widget and populate
     common_box = widgets.VBox(list(parameter_widgets.values()))
     ring_box  = widgets.VBox(list(ringRemoval_parameter_widgets.values()))
     additional_box = widgets.VBox(list(additional_parameter_widgets.values()))
