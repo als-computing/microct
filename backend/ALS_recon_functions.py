@@ -46,10 +46,9 @@ def get_directory_filelist(path,max_num=10000, verbose = False):
         sorted_file_names.append(f'{i}: {filenamelist[i]}')
     return filenamelist, sorted_file_names
 
-def read_metadata(path,convert360=False,print_flag=True):
+def read_metadata(path,print_flag=True):
     """ Reads metadata (slices, rays, etc) from APS tomoscan hdf5 format and returns in dictionary
         path: full path to .h5 file
-        convert360: if True, will do 360 to 180 deg conversion
         print_flag: whether to print metadata to screen
     """
     numslices = int(dxchange.read_hdf5(path, "/measurement/instrument/detector/dimension_y")[0])
@@ -61,18 +60,13 @@ def read_metadata(path,convert360=False,print_flag=True):
     angularrange = dxchange.read_hdf5(path, "/process/acquisition/rotation/range")[0]
     filename = os.path.split(path)[-1]
     
-    if convert360: # this stuff taken from Dulan's legacy notebook, have not verified
-        numangles = int(numangles/2)
-        numrays = numrays*2
-        angularrange = ngularrange = angularrange/2 if tomo.shape[0]%2==0 else angularrange/2 - angularrange/(numangles-1)
-
     if print_flag:
         print(f'{filename}:')
         print(f'numslices: {numslices}, rays: {numrays}, numangles: {numangles}')
         print(f'angularrange: {angularrange}, pxsize: {pxsize*10000} um, distance: {propagation_dist} mm. energy: {kev} keV')
         if kev>100:
             print('white light mode detected; energy is set to 30 kev for the phase retrieval function')
-        
+          
     return {'numslices': numslices,
             'numrays': numrays,
             'pxsize': pxsize,
@@ -82,7 +76,7 @@ def read_metadata(path,convert360=False,print_flag=True):
             'angularrange': angularrange}
 
 def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
-              preprocess_settings={'minimum_transmission':0.01}, postprocess_settings=None, convert360=False, **kwargs):
+              preprocess_settings={'minimum_transmission':0.01}, postprocess_settings=None, **kwargs):
     """ Reads projetion data gets prepares for reconstruction (ie normalizes, takes log, filters, etc).
         Assumes APS tomoscan hdf5 format (see here: https://dxchange.readthedocs.io/en/latest/source/api/dxchange.exchange.html#)
         path: full path to .h5 file
@@ -93,19 +87,12 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
         preprocess_settings: dictionary of parameters used to process projections BEFORE log (see prelog_process_tomo)
         postprocess_settings: dictionary of parameters used to process projections AFTER log (see postlog_process_tomo)
     """
+    metadata = read_metadata(path,print_flag=False)
+
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
     angles = angles[proj].squeeze()
-    
-    if convert360: # this stuff taken from Dulan's legacy notebook, have not verified
-        COR = kwargs["COR"] # Note: if convert360=True, must include COR parameter in input
-        # why -.5 on one and not on the other?
-        if tomo.shape[0]%2>0:
-            tomo = sino_360_to_180(tomo[0:-1,:,:], overlap=int(np.round((tomo.shape[2]-COR-.5))*2), rotation='right')
-        else:
-            tomo = sino_360_to_180(tomo[:,:,:], overlap=int(np.round((tomo.shape[2]-COR))*2), rotation='right')
-                        
     tomopy.normalize(tomo, flat, dark, out=tomo)
-
+        
     if preprocess_settings:
         tomo = prelog_process_tomo(tomo, preprocess_settings)
     if prelog:
@@ -196,13 +183,17 @@ def mask_recon(recon,r=None):
     return recon
 
 def auto_find_cor(path):
-    """ Reads first and SECOND TO LAST projection image and uses cross-correlation to estimate COR. Uses tomopy implementation.
+    """ Reads first and last projection image and uses cross-correlation to estimate COR. Uses tomopy implementation.
         Note: COR converted to units of pixels FROM CENTER (ie perfectly centered projections have a COR=0). Tomopy uses pixels from edge. 
         path: full path to .h5 file    
     """
     metadata = read_metadata(path,print_flag=False)
-    lastcor = metadata['numangles']-1 # Copied from Dula's legacy notebook. Why minus 1? Makes comparison with second to last projection
-    # lastcor = metadata['numangles'] # This would take last projection
+    if metadata['angularrange'] > 300:
+        # lastcor = int(np.floor(metadata['numangles'] / 2) - 1) # Copied from Dula's legacy notebook. Why minus one?
+        lastcor = int(np.ceil(metadata['numangles'] / 2) )
+    else:
+        # lastcor = metadata['numangles']-1 # Copied from Dula's legacy notebook. Why minus 1? Makes comparison with second to last projection
+        lastcor = metadata['numangles'] # This would take last projection
     tomo, _ = read_data(path, proj=slice(0,lastcor,lastcor-1),downsample_factor=None)
     cor = tomopy.find_center_pc(tomo[0], tomo[-1], tol=0.25)
     cor = cor - tomo.shape[2]/2

@@ -15,7 +15,8 @@ def reconstruct(path, angles_ind, slices_ind, COR,
                 method=None,
                 proj_downsample=1, fc=1,
                 preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None,
-                mask=True, use_gpu=False):
+                mask=True, convert360to180=True,
+                use_gpu=False):
     
     """ This is what the ALS_recon notebook calls for all reconstructions (except SVMBIR cells) -- if not method is set, default is chosen depending on depending on machine/resources    
         path: full path to .h5 file
@@ -32,6 +33,17 @@ def reconstruct(path, angles_ind, slices_ind, COR,
                                  downsample_factor=proj_downsample,
                                  preprocess_settings=preprocessing_settings,
                                  postprocess_settings=postprocessing_settings)
+    
+    if metadata['angularrange'] > 300 and convert360to180: # convert 360 to 180
+        print("Detected 360 degree acquisition - will convert sinograms to 180 degrees")
+            
+        # Taken from Dula's legacy reconstruction.py
+        # In lines below, "tomo.shape[2]-COR" was changed to "tomo.shape[2]//2-COR" to compensate for change in COR definition
+        if tomo.shape[0]%2>0:
+            tomo = als.sino_360_to_180(tomo[0:-1,:,:], overlap=int(np.round((tomo.shape[2]//2-COR/proj_downsample-.5))*2), rotation='right')           
+        else:
+            tomo = als.sino_360_to_180(tomo[:,:,:], overlap=int(np.round((tomo.shape[2]//2-COR/proj_downsample))*2), rotation='right')                       
+        angles = angles[:tomo.shape[0]]
 
     if method == "fbp":
         recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
@@ -64,7 +76,6 @@ def reconstruct(path, angles_ind, slices_ind, COR,
 def show_slice_reconstruction(path, slice_num,
                               proj_downsample, angles_downsample,
                               COR,
-                              method,
                               fc,
                               minimum_transmission,
                               outlier_diff, outlier_size,
@@ -98,14 +109,14 @@ def show_slice_reconstruction(path, slice_num,
                           "outlier_diff_1D": outlier_diff,
                           "outlier_size_1D": outlier_size
                          }
-    postrocessing_settings = {"ringSigma": ringSigma,
+    postprocessing_settings = {"ringSigma": ringSigma,
                           "ringLevel": ringLevel
                          }
     recon, tomo = reconstruct(path=path,
                               angles_ind=angles_ind, slices_ind=slices_ind,
                               COR=COR,
                               proj_downsample=proj_downsample, fc=fc,
-                              preprocessing_settings=preprocessing_settings, postrocessing_settings=postrocessing_settings,
+                              preprocessing_settings=preprocessing_settings, postprocessing_settings=postprocessing_settings,
                               use_gpu=use_gpu)
     img_handle.set_data(recon.squeeze())
     if sino_handle: sino_handle.set_data(tomo.squeeze())
