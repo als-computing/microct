@@ -189,11 +189,10 @@ def auto_find_cor(path):
     """
     metadata = read_metadata(path,print_flag=False)
     if metadata['angularrange'] > 300:
-        # lastcor = int(np.floor(metadata['numangles'] / 2) - 1) # Copied from Dula's legacy notebook. Why minus one?
         lastcor = int(np.ceil(metadata['numangles'] / 2) )
     else:
-        # lastcor = metadata['numangles']-1 # Copied from Dula's legacy notebook. Why minus 1? Makes comparison with second to last projection
         lastcor = metadata['numangles'] # This would take last projection
+
     tomo, _ = read_data(path, proj=slice(0,lastcor,lastcor-1),downsample_factor=None)
     cor = tomopy.find_center_pc(tomo[0], tomo[-1], tol=0.25)
     cor = cor - tomo.shape[2]/2
@@ -584,7 +583,18 @@ def set_sino(img,path,sino_num,hline_handles=None):
             hline_handles = [hline_handles]
         for h in hline_handles:        
             h.set_ydata([sino_num,sino_num])
-        
+
+def set_slice(img,recon,slice_num):
+    """ Sets sinogram slice to display. Used by sinogram plotting sliders
+        img: matplotlib image handle(s)
+        recon: full 3D recon
+        slice_num: slice number to display
+    """
+    if not isinstance(img, list):
+        img = [img]
+    for im in img:
+        im.set_data(recon[slice_num])
+            
 def set_clim(img,clims):
     """ Sets grayscale limits on image. Used by colorscale sliders
         img: matplotlib image handle(s)
