@@ -76,6 +76,10 @@ def create_svmbir_batch_script(settings):
     username = s.read()[:-1]
     user_template = template.replace('<username>',username)        
         
+    # if there's a lot of slices, adjust run time (numbers are a little arbitrary)
+    if settings["data"]["stop_slice"] - settings["data"]["start_slice"] > 1500:
+        user_template = user_template.replace("--time=00:10:00","--time=00:15:00")
+
     s = os.popen("echo $NERSC_HOST")
     out = s.read()
     N = 40 if 'cori' in out else 10
@@ -89,7 +93,7 @@ def create_svmbir_batch_script(settings):
     with open(config_script_name, 'w') as f:
         script = user_template
         script += "\n"
-        script += f"srun -N {N} -n 1280 python {os.getcwd()}/backend/batch_recon.py"
+        script += f"srun -N {N} -n 1280 shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
         script += " '" + enc + "'"
         f.write(script)
         
@@ -111,8 +115,9 @@ def dictionary_prep(dictionary):
 def batch_astra_recon(settings): 
     """ Perform Astra reconstruction using encoded settings string """
 
+    print(f"Starting ALS batch Astra recon...")
+    
     use_gpu = als.check_for_gpu()
-
     nchunk = 50 
     '''
     nchunk is balance between available cpus and memory (larger value can be more parallelized but uses more memory)
@@ -126,6 +131,7 @@ def batch_astra_recon(settings):
     if settings["recon"]["COR"] is None:
         settings["recon"]["COR"] = als.auto_find_cor(settings["data"]["data_path"])
 
+    tic0 = time.time()
     for i in range(np.ceil((settings["data"]['stop_slice']-settings["data"]['start_slice'])/nchunk).astype(int)):
         start_iter = settings["data"]['start_slice']+i*nchunk
         stop_iter = np.minimum(start_iter+nchunk,settings["data"]['stop_slice'])
@@ -145,6 +151,7 @@ def batch_astra_recon(settings):
 
         print(f"Finished: took {time.time()-tic} sec. Saving files...")
         dxchange.write_tiff_stack(recon, fname=save_name, start=start_iter)
+    print(f"Done, took {time.time()-tic0} sec")
     
 def mpi4py_svmbir_recon(settings):
     """ Perform SVMBIR reconstruction using encoded settings string. Parallelize over slices using mpi4py """
@@ -156,9 +163,10 @@ def mpi4py_svmbir_recon(settings):
     name = MPI.Get_processor_name()
 
     save_dir = os.path.join(settings["data"]["output_path"],settings["data"]["name"],"svmbir")
-    save_name = os.path.join(save_dir,settings["data"]["name"])
     if rank == 0: # to avoid multiple tasks doing this at the same time
+        print(f"Starting ALS batch SVMBIR recon...")
         if not os.path.exists(save_dir): os.makedirs(save_dir)
+        
     
     # if COR is None, use cross-correlation finder
     if settings["svmbir_settings"]["COR"] is None:
@@ -167,29 +175,29 @@ def mpi4py_svmbir_recon(settings):
     for i in range((settings["data"]['stop_slice']-settings["data"]['start_slice'])):
         if i % size == rank:
             print(f"Starting slice {i} on {name}, core {rank} of {size}")
+            save_name = os.path.join(save_dir,settings["data"]["name"]+f"_{i:06}")
             tic = time.time()
+            
             tomo, angles = als.read_data(settings["data"]["data_path"],
                                          proj=settings["data"]["angles_ind"],
                                          sino=slice(i,i+1,1),
                                          downsample_factor=settings["data"]["proj_downsample"],
-                                         args=settings["preprocess"])
-            recon = als.svmbir_recon(tomo,angles,**svmbir_settings)
+                                         preprocess_settings=settings["preprocess"],
+                                         postprocess_settings=settings["postprocess"])
+
+            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"])
+            svmbir_recon = als.mask_recon(svmbir_recon)
             print(f"Finished slice {i} on {name}, core {rank} of {size}, took {time.time()-tic} sec")
-            dxchange.write_tiff_stack(recon, fname=save_name, start=start_iter)
+            dxchange.write_tiff(svmbir_recon, fname=save_name)
 
 def main():
-    print(f"Starting ALS_batch_recon")
-    tic = time.time()
     string = sys.argv[:][-1] 
     settings = pickle.loads(base64.b64decode(string.encode('utf-8')))
     if 'svmbir_settings' in settings:
-        print(f"SVMBIR...")
         mpi4py_svmbir_recon(settings)
     else:
-        print(f"Astra...")
         batch_astra_recon(settings)
        
-    print(f"Finished ALS_batch_recon, took {time.time()-tic} sec")
 
     
 if __name__ == '__main__':
