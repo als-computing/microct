@@ -379,7 +379,7 @@ def astra_cgls_recon_3d(tomo,angles_or_vectors,vectors=False,COR=0,num_iter=20):
     rec = astra.data3d.get(rec_id)
     return rec
 
-def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None):
+def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0,snr_dB=40.0,max_iter=100,init_image=None,num_threads=None):
     """ Super Voxel Model Based Image Reconstruction.       
         tomo: sinogram(s) to reconstuct. 3D numpy array (angles,slices,rays)
         angles: projection angles, in radians 
@@ -396,10 +396,10 @@ def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0
                               init_image=init_image, # init with fbp for faster convergence
                               T=T, q=q, p=p, sharpness=sharpness, snr_db=snr_dB,
                               positivity=False, # must be False due to phase contrast in ALS data
-                              num_threads=128,  
+                              num_threads=num_threads,  
                               max_iterations=max_iter,
                               svmbir_lib_path=get_svmbir_cache_dir(), # must have access to this directory
-                              verbose=1) # 0, 1 or 2
+                              verbose=0) # 0, 1 or 2
     recon = recon.transpose(0,2,1) # to match tomopy format
     return recon
       
@@ -437,23 +437,37 @@ def tomopy_gridrec_recon(tomo,angles,COR=0,fc=1,butterworth_order=2,**kwargs):
     return rec
 
 
-def cache_svmbir_projector(img_size,num_angles,num_threads=None):
+def cache_svmbir_projector(num_rays,num_angles,num_threads=None):
     """ Creates a SVMBIR system matrix cache as quickly as possible by and automatically saves in location set by get_svmbir_cache_dir.
         Cache depends on both image size, projections angles (assumed evenly distributed from 0 to 180), and COR (assumed 0).
         
-        img_size: 2D image dimensions. Can be list with multiple entries (will cache all of them)
+        num_rays: number of rays in a projection. Same as image size in each dimension. Can be list with multiple entries (will cache all of them)
         num_angles: Number of projection angles. Can be list with multiple entries (will cache all of them)
-        num_threads: How many CPU threads to use. None defaults to all available threads        
     """
-    for i,(sz,nang) in enumerate(zip(img_size,num_angles)):
-        print(f"Starting size={sz[0]}x{sz[1]}")
-        img = svmbir.phantom.gen_shepp_logan(sz[0],sz[1])[np.newaxis]
-        angles = np.linspace(0,np.pi,nang)
-        t0 = time.time()
-        tomo = svmbir.project(img, angles, img.shape[2],
-                              num_threads=num_threads,
-                              verbose=0,
-                              svmbir_lib_path=get_svmbir_cache_dir())
+    if not isinstance(num_rays, list): num_rays = [num_rays]
+    if not isinstance(num_angles, list): num_angles = [num_angles]
+
+    num_slices = 1
+    num_rows = num_rays
+    num_cols = num_rays
+
+    angles = np.linspace(0,np.pi,num_angles)
+    num_views = len(angles)
+    num_channels = num_rays
+    roi_radius = float(1.0 * max(num_rows, num_cols))/2.0
+
+    print(f"Starting size: {sz}, num_angles: {nang}")
+    t0 = time.time()
+    paths, sinoparams, imgparams = ci._init_geometry(angles, center_offset=0.0,
+                                                 geometry='parallel', dist_source_detector=0.0,
+                                                 magnification=1.0,
+                                                 num_channels=num_channels, num_views=num_views, num_slices=num_slices,
+                                                 num_rows=num_rows, num_cols=num_cols,
+                                                 delta_channel=1.0, delta_pixel=1.0,
+                                                 roi_radius=roi_radius,
+                                                 object_name='object',
+                                                 svmbir_lib_path=get_svmbir_cache_dir(),
+                                                 verbose=2)
         t = time.time() - t0
         print(f"Finisehd: time={t}")    
         
@@ -468,7 +482,6 @@ def get_scratch_path():
         return scratch_echo[:-1]
     else: # not on NERSC
         return os.getcwd()
-    
     
 def sino_360_to_180(data, overlap=0, rotation='left'):
     """ Taken directly from Dula's legacy "reconstruction.py"
