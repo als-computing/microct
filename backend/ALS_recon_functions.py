@@ -441,12 +441,14 @@ def cache_svmbir_projector(num_rays,num_angles,num_threads=None):
     """ Creates a SVMBIR system matrix cache as quickly as possible by and automatically saves in location set by get_svmbir_cache_dir.
         Cache depends on both image size, projections angles (assumed evenly distributed from 0 to 180), and COR (assumed 0).
         
-        num_rays: number of rays in a projection. Same as image size in each dimension. Can be list with multiple entries (will cache all of them)
-        num_angles: Number of projection angles. Can be list with multiple entries (will cache all of them)
+        num_rays: number of rays in a projection. Same as image size in each dimension.
+        num_angles: Number of projection angles.
     """
-    if not isinstance(num_rays, list): num_rays = [num_rays]
-    if not isinstance(num_angles, list): num_angles = [num_angles]
-
+    if os.environ.get('CLIB') =='CMD_LINE':
+        import svmbir.interface_py_c as ci
+    else:
+        import svmbir.interface_cy_c as ci
+    
     num_slices = 1
     num_rows = num_rays
     num_cols = num_rays
@@ -456,7 +458,7 @@ def cache_svmbir_projector(num_rays,num_angles,num_threads=None):
     num_channels = num_rays
     roi_radius = float(1.0 * max(num_rows, num_cols))/2.0
 
-    print(f"Starting size: {sz}, num_angles: {nang}")
+    print(f"Starting size: {num_rays}, num_angles: {num_angles}")
     t0 = time.time()
     paths, sinoparams, imgparams = ci._init_geometry(angles, center_offset=0.0,
                                                  geometry='parallel', dist_source_detector=0.0,
@@ -468,8 +470,8 @@ def cache_svmbir_projector(num_rays,num_angles,num_threads=None):
                                                  object_name='object',
                                                  svmbir_lib_path=get_svmbir_cache_dir(),
                                                  verbose=2)
-        t = time.time() - t0
-        print(f"Finisehd: time={t}")    
+    t = time.time() - t0
+    print(f"Finisehd: time={t}")    
         
 def get_svmbir_cache_dir():
     """ Sets location of SVMBIR system matrix cache. Must be accessible by all users, otherwise SVMBIR will take prohibitively long """
