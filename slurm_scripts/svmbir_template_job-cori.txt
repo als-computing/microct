@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH -q regular
 #SBATCH -A als
-#SBATCH --image=dperl/tomocam:latest
+#SBATCH --image=dperl/als832:mpi
 #SBATCH --volume=/global/cfs/cdirs/als/data_mover/share/<username>:/alsuser;/global/cfs/cdirs/als/data_mover/8.3.2/raw:/alsdata:ro
 #SBATCH -C haswell
 #SBATCH -N 40
 #SBATCH -n 1280
 #SBATCH --ntasks-per-node 32
 #SBATCH --cpus-per-task 1
-#SBATCH --time=00:10:00
-#SBATCH -J tomo832
+#SBATCH --time=00:15:00
+#SBATCH -J als832-svmbir
 
 export NUMEXPR_MAX_THREADS=999
 export HDF5_USE_FILE_LOCKING=FALSE
