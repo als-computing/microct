@@ -11,10 +11,14 @@ import ipywidgets as widgets
 import ALS_recon_functions as als
 
 
-def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
-                           fc=1, preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None, mask=True, use_gpu=False):
-    """ This is what the ALS_recon notebook calls for all reconstructions (except SVMBIR cells) -- can use fbp, cgls, or something else, depending on machine/resources
+def reconstruct(path, angles_ind, slices_ind, COR,
+                method=None,
+                proj_downsample=1, fc=1,
+                preprocessing_settings={'minimum_transmission':0.01}, postprocessing_settings=None,
+                mask=True, convert360to180=True,
+                use_gpu=False):
     
+    """ This is what the ALS_recon notebook calls for all reconstructions (except SVMBIR cells) -- if not method is set, default is chosen depending on depending on machine/resources    
         path: full path to .h5 file
         angles_ind: which projections to read (first,last,step). None means all projections.
         slices_ind: which slices to read (first,last,step). None means all slices.
@@ -28,22 +32,39 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
                                  proj=angles_ind, sino=slices_ind,
                                  downsample_factor=proj_downsample,
                                  preprocess_settings=preprocessing_settings,
-                                 postprocess_settings=postprocessing_settings,
-                                 mask=True)
+                                 postprocess_settings=postprocessing_settings)
+    
+    if metadata['angularrange'] > 300 and convert360to180: # convert 360 to 180
+        print("Detected 360 degree acquisition - will convert sinograms to 180 degrees")
+            
+        # Taken from Dula's legacy reconstruction.py
+        # In lines below, "tomo.shape[2]-COR" was changed to "tomo.shape[2]//2-COR" to compensate for change in COR definition
+        if tomo.shape[0]%2>0:
+            tomo = als.sino_360_to_180(tomo[0:-1,:,:], overlap=int(np.round((tomo.shape[2]//2-COR/proj_downsample-.5))*2), rotation='right')           
+        else:
+            tomo = als.sino_360_to_180(tomo[:,:,:], overlap=int(np.round((tomo.shape[2]//2-COR/proj_downsample))*2), rotation='right')                       
+        angles = angles[:tomo.shape[0]]
 
-    if use_gpu: # have GPU
+    if method == "fbp":
         recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
-        # recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
-    else:
-        # determine what machine we are on
-        s = os.popen("echo $NERSC_HOST")
-        out = s.read()
-        if 'perlmutter' in out: # on Perlmutter CPU node, still pretty fast
+    elif method == "cgls":
+        recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
+    elif method == "gridrec":
+        recon = als.tomopy_gridrec_recon(tomo, angles, COR=COR/proj_downsample, fc=fc)
+    else: # no method chosen, use default depending on 
+        if use_gpu: # have GPU
             recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
-        else: # on Cori CPU node or not NERSC -- assume slow so use gridrec
-            recon = als.tomopy_gridrec_recon(tomo, angles, COR=COR/proj_downsample, fc=fc)
+            # recon = als.astra_cgls_recon(tomo, angles, COR=COR/proj_downsample, num_iter=20, gpu=use_gpu)
+        else:
+            # determine what machine we are on
+            s = os.popen("echo $NERSC_HOST")
+            out = s.read()
+            if 'perlmutter' in out: # on Perlmutter CPU node, still pretty fast
+                recon = als.astra_fbp_recon(tomo, angles, COR=COR/proj_downsample, fc=fc, gpu=use_gpu)
+            else: # on Cori CPU node or not NERSC -- assume slow so use gridrec
+                recon = als.tomopy_gridrec_recon(tomo, angles, COR=COR/proj_downsample, fc=fc)
 
-    if mask:
+    if mask: # by default, mask recon ROI
         recon = als.mask_recon(recon)
     
     recon /= metadata['pxsize']  # convert reconstructed voxel values from 1/pixel to 1/cm
@@ -54,7 +75,8 @@ def default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample=1,
 
 def show_slice_reconstruction(path, slice_num,
                               proj_downsample, angles_downsample,
-                              COR, fc,
+                              COR,
+                              fc,
                               minimum_transmission,
                               outlier_diff, outlier_size,
                               sarepy_snr, sarepy_la_size, sarepy_sm_size,
@@ -78,7 +100,6 @@ def show_slice_reconstruction(path, slice_num,
         * For the selectable parameters, see descriptions in ALS_recon.ipynb *        
     """
     
-    
     slices_ind = slice(slice_num,slice_num+1,1)
     angles_ind = slice(0,-1,angles_downsample)
     preprocessing_settings = {"minimum_transmission": minimum_transmission,
@@ -88,10 +109,15 @@ def show_slice_reconstruction(path, slice_num,
                           "outlier_diff_1D": outlier_diff,
                           "outlier_size_1D": outlier_size
                          }
-    postrocessing_settings = {"ringSigma": ringSigma,
+    postprocessing_settings = {"ringSigma": ringSigma,
                           "ringLevel": ringLevel
                          }
-    recon, tomo = default_reconstruction(path, angles_ind, slices_ind, COR, proj_downsample, fc, preprocessing_settings, postrocessing_settings, use_gpu)
+    recon, tomo = reconstruct(path=path,
+                              angles_ind=angles_ind, slices_ind=slices_ind,
+                              COR=COR,
+                              proj_downsample=proj_downsample, fc=fc,
+                              preprocessing_settings=preprocessing_settings, postprocessing_settings=postprocessing_settings,
+                              use_gpu=use_gpu)
     img_handle.set_data(recon.squeeze())
     if sino_handle: sino_handle.set_data(tomo.squeeze())
     if hline_handle: hline_handle.set_ydata([slice_num,slice_num])
@@ -125,7 +151,6 @@ def reconstruction_parameter_options(path,cor_init,use_gpu,img_handle,sino_handl
         description='Projection Downsampling:',
         style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
-
     parameter_widgets['proj_downsample'] = proj_downsample_widget
     # COR    
     cor_widget = widgets.FloatSlider(description='COR', layout=widgets.Layout(width='100%'),
