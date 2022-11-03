@@ -13,6 +13,8 @@ import dxchange
 import base64
 import pickle
 import time
+import datetime
+import re
 from pathlib import Path
 
 import ALS_recon_functions as als
@@ -46,10 +48,18 @@ def create_batch_script(settings):
     s = os.popen("echo $USER")
     username = s.read()[:-1]
     user_template = template.replace('<username>',username)
-    
-    # if there's a lot of slices, adjust run time (numbers are a little arbitrary)
-    if settings["data"]["stop_slice"] - settings["data"]["start_slice"] > 1500:
-        user_template = user_template.replace("--time=00:10:00","--time=00:15:00")
+
+    s = os.popen("echo $NERSC_HOST")
+    out = s.read()
+
+    # calculate job time by number of slices (on either perlmutter or cori)
+    sec_per_100_slices = 45 if 'perlmutter' in out else 90 # may need to adjust a little
+    num_slices = settings["data"]["stop_slice"] - settings["data"]["start_slice"]
+    total_seconds = int(np.ceil(num_slices/100)*sec_per_100_slices)
+    seconds = total_seconds % 60
+    minutes = (total_seconds // 60) % 60
+    hours = (total_seconds // 60) // 60
+    user_template = user_template.replace("--time=00:15:00",f"--time={hours:02d}:{minutes:02d}:{seconds:02d}")
         
     configs_dir = Path(os.path.join(settings["data"]["output_path"],"configs/"))
     if not configs_dir.exists():
@@ -72,17 +82,25 @@ def create_svmbir_batch_script(settings):
     with open (get_batch_template(algorithm="svmbir"), "r") as t:
         template = t.read()
 
+    # number of nodes and jobs
+    N = int(re.search('#SBATCH -N ([0-9]+)',template)[1])
+    n = int(re.search('#SBATCH -n ([0-9]+)',template)[1])
+
     s = os.popen("echo $USER")
     username = s.read()[:-1]
     user_template = template.replace('<username>',username)        
         
-    # if there's a lot of slices, adjust run time (numbers are a little arbitrary)
-    if settings["data"]["stop_slice"] - settings["data"]["start_slice"] > 1500:
-        user_template = user_template.replace("--time=00:10:00","--time=00:15:00")
-
     s = os.popen("echo $NERSC_HOST")
     out = s.read()
-    N = 40 if 'cori' in out else 10
+
+    # calculate job time by number of slices (on either perlmutter or cori)
+    sec_per_slice = 600 if 'perlmutter' in out else 600 # may need to adjust a little 
+    num_slices = settings["data"]["stop_slice"] - settings["data"]["start_slice"]
+    total_seconds = int(np.ceil(num_slices/1280)*sec_per_slice)
+    seconds = total_seconds % 60
+    minutes = (total_seconds // 60) % 60
+    hours = (total_seconds // 60) // 60
+    user_template = user_template.replace("--time=00:15:00",f"--time={hours:02d}:{minutes:02d}:{seconds:02d}")
 
     configs_dir = Path(os.path.join(settings["data"]["output_path"],"configs/"))
     if not configs_dir.exists():
@@ -93,7 +111,7 @@ def create_svmbir_batch_script(settings):
     with open(config_script_name, 'w') as f:
         script = user_template
         script += "\n"
-        script += f"srun -N {N} -n 1280 shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
+        script += f"srun -N {N} -n {n} shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
         script += " '" + enc + "'"
         f.write(script)
         
@@ -162,9 +180,8 @@ def mpi4py_svmbir_recon(settings):
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
 
-    save_dir = os.path.join(settings["data"]["output_path"],settings["data"]["name"],"svmbir")
+    save_dir = os.path.join(settings["data"]["output_path"],settings["data"]["name"]+"-svmbir")
     if rank == 0: # to avoid multiple tasks doing this at the same time
-        print(f"Starting ALS batch SVMBIR recon...")
         if not os.path.exists(save_dir): os.makedirs(save_dir)
         
     
@@ -174,26 +191,28 @@ def mpi4py_svmbir_recon(settings):
     
     for i in range((settings["data"]['stop_slice']-settings["data"]['start_slice'])):
         if i % size == rank:
-            print(f"Starting slice {i} on {name}, core {rank} of {size}")
-            save_name = os.path.join(save_dir,settings["data"]["name"]+f"_{i:06}")
+            slice_num = settings["data"]['start_slice'] + i
+            print(f"Starting SVMBIR recon of slice {slice_num} on {name}, core {rank} of {size}")
+            save_name = os.path.join(save_dir,settings["data"]["name"])
             tic = time.time()
             
             tomo, angles = als.read_data(settings["data"]["data_path"],
                                          proj=settings["data"]["angles_ind"],
-                                         sino=slice(i,i+1,1),
+                                         sino=slice(slice_num,slice_num+1,1),
                                          downsample_factor=settings["data"]["proj_downsample"],
                                          preprocess_settings=settings["preprocess"],
                                          postprocess_settings=settings["postprocess"])
-
-            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"])
+            
+            # num_threads should match cpus-per-task in slurm script. Don't know how to do that except hardcode
+            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"], num_threads=128)
             svmbir_recon = als.mask_recon(svmbir_recon)
-            print(f"Finished slice {i} on {name}, core {rank} of {size}, took {time.time()-tic} sec")
-            dxchange.write_tiff(svmbir_recon, fname=save_name)
+            print(f"Finished slice {slice_num} on {name}, core {rank} of {size}, took {time.time()-tic} sec")
+            dxchange.write_tiff_stack(svmbir_recon, fname=save_name, start=slice_num)
 
 def main():
     string = sys.argv[:][-1] 
     settings = pickle.loads(base64.b64decode(string.encode('utf-8')))
-    if 'svmbir_settings' in settings:
+    if settings["recon"]["method"] == "svmbir":
         mpi4py_svmbir_recon(settings)
     else:
         batch_astra_recon(settings)
