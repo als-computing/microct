@@ -437,29 +437,48 @@ def tomopy_gridrec_recon(tomo,angles,COR=0,fc=1,butterworth_order=2,**kwargs):
     return rec
 
 
-def cache_svmbir_projector(num_rays,num_angles,num_threads=None):
+def cache_svmbir_projector(num_rays,num_angles,save_to_default_cache=True):
     """ Creates a SVMBIR system matrix cache as quickly as possible by and automatically saves in location set by get_svmbir_cache_dir.
         Cache depends on both image size, projections angles (assumed evenly distributed from 0 to 180), and COR (assumed 0).
         
         num_rays: number of rays in projections. Produces images with same dimensions in each side. Can be list with multiple entries (will cache all of them)
         num_angles: Number of projection angles. Can be list with multiple entries (will cache all of them)
-        num_threads: How many CPU threads to use. None defaults to all available threads        
+        save_to_default_cache: If True, saves to the default svmbir cache path. Otherwise, saves to a folder called "svmbir_cache" in your scatch
+                -- for some reason I was having getting "Permission Denied" when trying to save directly the default cache directory on cfs, but I could save to scratch and copy over
     """
+    if os.environ.get('CLIB') =='CMD_LINE':
+        import svmbir.interface_py_c as ci
+    else:
+        import svmbir.interface_cy_c as ci
     
+    save_path = get_svmbir_cache_dir() if save_to_default_cache else os.path.join(get_scratch_path(),"svmbir_cache")        
     if not isinstance(num_rays, list): num_rays = [num_rays]
     if not isinstance(num_angles, list): num_angles = [num_angles]
-
+    
     for i,(sz,nang) in enumerate(zip(num_rays,num_angles)):
-        print(f"Starting size={sz}x{sz}")
-        img = svmbir.phantom.gen_shepp_logan(sz,sz)[np.newaxis]
+        num_slices = 1
+        num_rows = sz
+        num_cols = sz
+
         angles = np.linspace(0,np.pi,nang)
+        num_views = len(angles)
+        num_channels = sz
+        roi_radius = float(1.0 * max(num_rows, num_cols))/2.0
+
+        print(f"Starting size: {sz}, num_angles: {nang}")
         t0 = time.time()
-        tomo = svmbir.project(img, angles, img.shape[2],
-                              num_threads=num_threads,
-                              verbose=0,
-                              svmbir_lib_path=get_svmbir_cache_dir())
-        t = time.time() - t0
-        print(f"Finisehd: time={t}")    
+        paths, sinoparams, imgparams = ci._init_geometry(angles, center_offset=0.0,
+                                                     geometry='parallel', dist_source_detector=0.0,
+                                                     magnification=1.0,
+                                                     num_channels=num_channels, num_views=num_views, num_slices=num_slices,
+                                                     num_rows=num_rows, num_cols=num_cols,
+                                                     delta_channel=1.0, delta_pixel=1.0,
+                                                     roi_radius=roi_radius,
+                                                     object_name='object',
+                                                     svmbir_lib_path=save_path,
+                                                     verbose=2)
+        print(f"{sz}x{sz}-->{nang}x{sz}: {time.time() - t0} sec")
+
         
 def get_svmbir_cache_dir():
     """ Sets location of SVMBIR system matrix cache. Must be accessible by all users, otherwise SVMBIR will take prohibitively long """
