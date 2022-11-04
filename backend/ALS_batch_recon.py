@@ -20,6 +20,8 @@ from pathlib import Path
 import ALS_recon_functions as als
 import ALS_recon_helper as helper
 
+MAX_JOB_SECONDS = 60*60 # 1 hour
+
 def get_batch_template(algorithm="astra"):
     """ Gets path to appropriate batch scrpit template, depending on whether using Astra or SVMBIR, on Cori or Perlmutter """
     
@@ -55,7 +57,7 @@ def create_batch_script(settings):
     # calculate job time by number of slices (on either perlmutter or cori)
     sec_per_100_slices = 45 if 'perlmutter' in out else 90 # may need to adjust a little
     num_slices = settings["data"]["stop_slice"] - settings["data"]["start_slice"]
-    total_seconds = int(np.ceil(num_slices/100)*sec_per_100_slices)
+    total_seconds = int(np.minimum(np.ceil(num_slices/100)*sec_per_100_slices,MAX_JOB_SECONDS))
     seconds = total_seconds % 60
     minutes = (total_seconds // 60) % 60
     hours = (total_seconds // 60) // 60
@@ -94,9 +96,9 @@ def create_svmbir_batch_script(settings):
     out = s.read()
 
     # calculate job time by number of slices (on either perlmutter or cori)
-    sec_per_slice = 600 if 'perlmutter' in out else 600 # may need to adjust a little 
+    sec_per_slice = 200 if 'perlmutter' in out else 200 # may need to adjust a little 
     num_slices = settings["data"]["stop_slice"] - settings["data"]["start_slice"]
-    total_seconds = int(np.ceil(num_slices/1280)*sec_per_slice)
+    total_seconds = int(np.minimum(np.ceil(num_slices/n)*sec_per_slice,MAX_JOB_SECONDS))
     seconds = total_seconds % 60
     minutes = (total_seconds // 60) % 60
     hours = (total_seconds // 60) // 60
@@ -204,7 +206,7 @@ def mpi4py_svmbir_recon(settings):
                                          postprocess_settings=settings["postprocess"])
             
             # num_threads should match cpus-per-task in slurm script. Don't know how to do that except hardcode
-            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"], num_threads=128)
+            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"], num_threads=2)
             svmbir_recon = als.mask_recon(svmbir_recon)
             print(f"Finished slice {slice_num} on {name}, core {rank} of {size}, took {time.time()-tic} sec")
             dxchange.write_tiff_stack(svmbir_recon, fname=save_name, start=slice_num)
