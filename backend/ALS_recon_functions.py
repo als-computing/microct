@@ -396,7 +396,7 @@ def svmbir_recon(tomo,angles,COR=0,proj_downsample=1,p=1.2,q=2,T=0.1,sharpness=0
                               init_image=init_image, # init with fbp for faster convergence
                               T=T, q=q, p=p, sharpness=sharpness, snr_db=snr_dB,
                               positivity=False, # must be False due to phase contrast in ALS data
-                              num_threads=num_threads,  
+                              num_threads=num_threads, # None means use all available 
                               max_iterations=max_iter,
                               svmbir_lib_path=get_svmbir_cache_dir(), # must have access to this directory
                               verbose=0) # 0, 1 or 2

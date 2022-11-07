@@ -4,9 +4,9 @@
 #SBATCH --image=dperl/als832:mpi
 #SBATCH --volume=/global/cfs/cdirs/als/data_mover/share/<username>:/alsuser;/global/cfs/cdirs/als/data_mover/8.3.2/raw:/alsdata:ro
 #SBATCH -C haswell
-#SBATCH -N 20
-#SBATCH -n 160
-#SBATCH --ntasks-per-node 160
+#SBATCH -N 100
+#SBATCH -n 100
+#SBATCH --ntasks-per-node 1
 #SBATCH --cpus-per-task 32
 #SBATCH --time=00:15:00
 #SBATCH -J als832-svmbir
