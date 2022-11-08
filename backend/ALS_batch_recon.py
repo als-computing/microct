@@ -33,13 +33,13 @@ def get_batch_template(algorithm="astra"):
         elif 'perlmutter' in out:
             return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
         else:
-            sys.exit('not on cori or perlmutter -- throwing error')
+            sys.exit('not on cori or perlmutter for svmbir job -- throwing error')
     if 'cori' in out:
         return os.path.join('slurm_scripts','astra_template_job-cori.txt')
     elif 'perlmutter' in out:
         return os.path.join('slurm_scripts','astra_template_job-perlmutter.txt')
     else:
-        sys.exit('not on cori or perlmutter -- throwing error')
+        sys.exit('not on cori or perlmutter  for astra job -- throwing error')
 
 def create_batch_script(settings):
     """ Completes batch script from template by adding reconstruction settings """
