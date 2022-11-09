@@ -20,6 +20,8 @@ from pathlib import Path
 import ALS_recon_functions as als
 import ALS_recon_helper as helper
 
+MAX_JOB_SECONDS = 80*60 # 1 hour 20 min
+
 def get_batch_template(algorithm="astra"):
     """ Gets path to appropriate batch scrpit template, depending on whether using Astra or SVMBIR, on Cori or Perlmutter """
     
@@ -31,13 +33,13 @@ def get_batch_template(algorithm="astra"):
         elif 'perlmutter' in out:
             return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
         else:
-            sys.exit('not on cori or perlmutter -- throwing error')
+            sys.exit('not on cori or perlmutter for svmbir job -- throwing error')
     if 'cori' in out:
         return os.path.join('slurm_scripts','astra_template_job-cori.txt')
     elif 'perlmutter' in out:
         return os.path.join('slurm_scripts','astra_template_job-perlmutter.txt')
     else:
-        sys.exit('not on cori or perlmutter -- throwing error')
+        sys.exit('not on cori or perlmutter  for astra job -- throwing error')
 
 def create_batch_script(settings):
     """ Completes batch script from template by adding reconstruction settings """
@@ -55,7 +57,7 @@ def create_batch_script(settings):
     # calculate job time by number of slices (on either perlmutter or cori)
     sec_per_100_slices = 45 if 'perlmutter' in out else 90 # may need to adjust a little
     num_slices = settings["data"]["stop_slice"] - settings["data"]["start_slice"]
-    total_seconds = int(np.ceil(num_slices/100)*sec_per_100_slices)
+    total_seconds = int(np.minimum(np.ceil(num_slices/100)*sec_per_100_slices,MAX_JOB_SECONDS))
     seconds = total_seconds % 60
     minutes = (total_seconds // 60) % 60
     hours = (total_seconds // 60) // 60
@@ -94,9 +96,9 @@ def create_svmbir_batch_script(settings):
     out = s.read()
 
     # calculate job time by number of slices (on either perlmutter or cori)
-    sec_per_slice = 600 if 'perlmutter' in out else 600 # may need to adjust a little 
+    sec_per_slice = 20*60 # Found 20 min was about right for 8 slices. Can increase if jobs aren't finishing 
     num_slices = settings["data"]["stop_slice"] - settings["data"]["start_slice"]
-    total_seconds = int(np.ceil(num_slices/1280)*sec_per_slice)
+    total_seconds = int(np.minimum(np.ceil(num_slices/n)*sec_per_slice,MAX_JOB_SECONDS))
     seconds = total_seconds % 60
     minutes = (total_seconds // 60) % 60
     hours = (total_seconds // 60) // 60
@@ -152,7 +154,7 @@ def batch_astra_recon(settings):
     tic0 = time.time()
     for i in range(np.ceil((settings["data"]['stop_slice']-settings["data"]['start_slice'])/nchunk).astype(int)):
         start_iter = settings["data"]['start_slice']+i*nchunk
-        stop_iter = np.minimum(start_iter+nchunk,settings["data"]['stop_slice'])
+        stop_iter = np.minimum(start_iter+nchunk,settings["data"]['stop_slice']+1)
         print(f"Starting recon of slices {start_iter}-{stop_iter}...",end=' ')
         tic = time.time()
 
@@ -179,35 +181,39 @@ def mpi4py_svmbir_recon(settings):
     size = comm.Get_size()
     rank = comm.Get_rank()
     name = MPI.Get_processor_name()
-
+    
     save_dir = os.path.join(settings["data"]["output_path"],settings["data"]["name"]+"-svmbir")
     if rank == 0: # to avoid multiple tasks doing this at the same time
         if not os.path.exists(save_dir): os.makedirs(save_dir)
-        
-    
+                        
     # if COR is None, use cross-correlation finder
     if settings["svmbir_settings"]["COR"] is None:
         settings["svmbir_settings"]["COR"] = als.auto_find_cor(settings["data"]["data_path"])    
+
+    SLICES_PER_CHUNK = 8 # hardcoded parameter -- didn't see improvement at 16, but didn't test much        
+    NUM_CHUNKS = int(np.ceil((settings["data"]['stop_slice']-settings["data"]['start_slice'])/SLICES_PER_CHUNK))
     
-    for i in range((settings["data"]['stop_slice']-settings["data"]['start_slice'])):
+    print(f"SLICES_PER_CHUNK: {SLICES_PER_CHUNK},    NUM_CHUNKS: {NUM_CHUNKS}")
+    
+    for i in range(NUM_CHUNKS):
         if i % size == rank:
-            slice_num = settings["data"]['start_slice'] + i
-            print(f"Starting SVMBIR recon of slice {slice_num} on {name}, core {rank} of {size}")
+            start_slice = settings["data"]['start_slice'] + i*SLICES_PER_CHUNK
+            end_slice = np.minimum((i+1)*SLICES_PER_CHUNK,settings["data"]['stop_slice']+1)
+            print(f"Starting SVMBIR recon of slices {start_slice} to {end_slice-1} on {name}, core {rank} of {size}")
             save_name = os.path.join(save_dir,settings["data"]["name"])
             tic = time.time()
             
             tomo, angles = als.read_data(settings["data"]["data_path"],
                                          proj=settings["data"]["angles_ind"],
-                                         sino=slice(slice_num,slice_num+1,1),
+                                         sino=slice(start_slice,end_slice),
                                          downsample_factor=settings["data"]["proj_downsample"],
                                          preprocess_settings=settings["preprocess"],
                                          postprocess_settings=settings["postprocess"])
             
-            # num_threads should match cpus-per-task in slurm script. Don't know how to do that except hardcode
-            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"], num_threads=128)
+            svmbir_recon = als.svmbir_recon(tomo,angles,**settings["svmbir_settings"])
             svmbir_recon = als.mask_recon(svmbir_recon)
-            print(f"Finished slice {slice_num} on {name}, core {rank} of {size}, took {time.time()-tic} sec")
-            dxchange.write_tiff_stack(svmbir_recon, fname=save_name, start=slice_num)
+            print(f"Finished slice {start_slice} to {end_slice} on {name}, core {rank} of {size}, took {time.time()-tic} sec")
+            dxchange.write_tiff_stack(svmbir_recon, fname=save_name, start=start_slice)
 
 def main():
     string = sys.argv[:][-1] 
