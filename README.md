@@ -46,8 +46,21 @@ David Perlmutter (dperl@lbl.gov)
 Lipi Gupta (lipigupta@lbl.gov)
 Dula Parkinson (dyparkinson@lbl.gov)
 
-## License
+## GPL v3 License
 
-This project is licensed under the [NAME HERE] License - see the LICENSE.md file for details
+als microct recon (microct) Copyright (c) 2022, The Regents of the
+University of California, through Lawrence Berkeley National Laboratory
+(subject to receipt of any required approvals from the U.S. Dept. of
+Energy). All rights reserved.
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
 ## Acknowledgments
