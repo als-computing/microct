@@ -886,7 +886,7 @@ def recon(
                                     tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
                                     flat = tomobf
                         elif (filetype == 'dxfile'):
-                                _, flat, dark, _ = dxchange.excahnge.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+                                _, flat, dark, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
                                 y * projused[2] * num_proj_per_chunk + projused[0],
                                  np.minimum(
                                     (y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]),
