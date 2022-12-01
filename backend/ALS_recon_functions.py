@@ -90,7 +90,7 @@ def read_data(path, proj=None, sino=None, downsample_factor=None, prelog=False,
     metadata = read_metadata(path,print_flag=False)
 
     tomo, flat, dark, angles = dxchange.exchange.read_aps_tomoscan_hdf5(path, proj=proj, sino=sino, dtype=np.float32)
-    angles = angles[proj].squeeze()
+    angles = -angles[proj].squeeze()
     tomopy.normalize(tomo, flat, dark, out=tomo)
         
     if preprocess_settings:
