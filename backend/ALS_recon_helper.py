@@ -165,7 +165,7 @@ def reconstruction_parameter_options(path,cor_init,use_gpu,img_handle,sino_handl
         min=0.01,
         max=1,
         step = 0.01,
-        value=1,
+        value=0.75,
         description='Filter Cutoff (0.01 - 1, 1 is no filtering):',
         style={'description_width': 'initial'} # this makes sure description text doesn't get cut off
     )
