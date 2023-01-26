@@ -4,8 +4,8 @@
 #SBATCH --image=dperl/als832:mpi
 #SBATCH --volume=/global/cfs/cdirs/als/data_mover/share/<username>:/alsuser;/global/cfs/cdirs/als/data_mover/8.3.2/raw:/alsdata:ro
 #SBATCH -C cpu
-#SBATCH -N 100
-#SBATCH -n 100
+#SBATCH -N 10
+#SBATCH -n 10
 #SBATCH --ntasks-per-node 1
 #SBATCH --cpus-per-task 256
 #SBATCH --time=00:15:00

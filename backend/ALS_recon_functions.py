@@ -481,8 +481,18 @@ def cache_svmbir_projector(num_rays,num_angles,save_to_default_cache=True):
 
         
 def get_svmbir_cache_dir():
-    """ Sets location of SVMBIR system matrix cache. Must be accessible by all users, otherwise SVMBIR will take prohibitively long """
-    return '//global/cfs/cdirs/als/users/tomography_notebooks/svmbir_cache'
+    """ Sets location of SVMBIR system matrix cache. Must be accessible by all users, otherwise SVMBIR will take prohibitively long
+    If the global cache directory does raise a permission error, you can set the cache directory to your scratch directory by setting up cache_path as follows:
+    For Perlmutter:
+        cache_path = '/pscratch/sd/h/*YOUR_USER_NAME*/svmbir_cache'
+    For Cori:
+        cache_path = '/global/cscratch1/sd/h/*YOUR_USER_NAME*/svmbir_cache'
+    ---------------
+    Returns:
+        _type_: globally accessible file path to SVMBIR cache
+    """    
+    cache_path =  '//global/cfs/cdirs/als/users/tomography_notebooks/svmbir_cache'
+    return cache_path
 
 def get_scratch_path():
     """ Gets path to user's scratch if on NERSC, otherwise returns current directory """

@@ -20,7 +20,7 @@ from pathlib import Path
 import ALS_recon_functions as als
 import ALS_recon_helper as helper
 
-MAX_JOB_SECONDS = 80*60 # 1 hour 20 min
+MAX_JOB_SECONDS = 300*60 # 5 hour 00 min
 
 def get_batch_template(algorithm="astra"):
     """ Gets path to appropriate batch scrpit template, depending on whether using Astra or SVMBIR, on Cori or Perlmutter """
