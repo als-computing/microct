@@ -1,0 +1,16 @@
+#!/bin/bash
+#SBATCH -q regular
+#SBATCH -A als
+#SBATCH -C cpu
+#SBATCH -N 10
+#SBATCH -n 10
+#SBATCH --ntasks-per-node 1
+#SBATCH --cpus-per-task 256
+#SBATCH --time=10:00:00
+#SBATCH -J als832-svmbir
+
+export NUMEXPR_MAX_THREADS=999
+export HDF5_USE_FILE_LOCKING=FALSE
+
+module load python
+conda activate als832
