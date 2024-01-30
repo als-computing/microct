@@ -22,7 +22,7 @@ import ALS_recon_helper as helper
 
 MAX_JOB_SECONDS = 80*60 # 1 hour 20 min
 
-def get_batch_template(algorithm="astra"):
+def get_batch_template(algorithm="astra", *argv):
     """ Gets path to appropriate batch scrpit template, depending on whether using Astra or SVMBIR, on Cori or Perlmutter """
     
     s = os.popen("echo $NERSC_HOST")
@@ -30,6 +30,8 @@ def get_batch_template(algorithm="astra"):
     if algorithm == "svmbir":
         if 'cori' in out:
             return os.path.join('slurm_scripts','svmbir_template_job-cori.txt')
+        elif 'perlmutter' in out and argv:
+            return os.path.join('slurm_scripts','svmbir_template_job-perlmutter_conda.txt')
         elif 'perlmutter' in out:
             return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
         else:
@@ -79,7 +81,7 @@ def create_batch_script(settings):
     
     return configs_dir, config_script_name
 
-def create_svmbir_batch_script(settings):
+def create_svmbir_batch_script(settings, *argv):
     """ Completes svmbir script from template by adding reconstruction settings """
     with open (get_batch_template(algorithm="svmbir"), "r") as t:
         template = t.read()
@@ -113,7 +115,10 @@ def create_svmbir_batch_script(settings):
     with open(config_script_name, 'w') as f:
         script = user_template
         script += "\n"
-        script += f"srun -N {N} -n {n} shifter python {os.getcwd()}/backend/ALS_batch_recon.py"
+        if argv:
+            script += f"srun -N {N} -n {n} python /global/cfs/cdirs/als/data_mover/share/{username}/notebooks/als_microct-recon/backend/ALS_batch_recon.py"
+        else:
+            script += f"srun -N {N} -n {n} shifter python {os.getcwd()}/backend/ALS_batch_recon.py" #for container
         script += " '" + enc + "'"
         f.write(script)
         
