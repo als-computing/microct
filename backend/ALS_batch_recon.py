@@ -31,7 +31,7 @@ def get_batch_template(algorithm="astra", *argv):
         if 'cori' in out:
             return os.path.join('slurm_scripts','svmbir_template_job-cori.txt')
         elif 'perlmutter' in out and argv:
-            return os.path.join('slurm_scripts','svmbir_template_job-perlmutter_conda.txt')
+            return os.path.join('slurm_scripts','svmbir_template_job-perlmutter-conda.txt')
         elif 'perlmutter' in out:
             return os.path.join('slurm_scripts','svmbir_template_job-perlmutter.txt')
         else:
@@ -83,7 +83,7 @@ def create_batch_script(settings):
 
 def create_svmbir_batch_script(settings, *argv):
     """ Completes svmbir script from template by adding reconstruction settings """
-    with open (get_batch_template(algorithm="svmbir"), "r") as t:
+    with open (get_batch_template("svmbir", *argv), "r") as t:
         template = t.read()
 
     # number of nodes and jobs
