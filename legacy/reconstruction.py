@@ -6,7 +6,7 @@ import numexpr as ne
 import skimage.transform as st
 import os
 import sys
-import scipy.ndimage.filters as snf
+import scipy.ndimage as snf
 import concurrent.futures as cf
 import warnings
 #import xlrd # for importing excel spreadsheets
@@ -62,12 +62,14 @@ slice_dir = {
     'minus_log': 'both',
     'beam_hardening': 'both',
     'remove_stripe_fw': 'sino',
+    'remove_stripe_vo': 'sino',
     'remove_stripe_ti': 'sino',
     'remove_stripe_sf': 'sino',
     'do_360_to_180': 'sino',
     'correcttilt': 'proj',
     'lensdistortion': 'proj',
     'phase_retrieval': 'proj',
+    'translation_correction': 'proj',
     'recon_mask': 'sino',
     'polar_ring': 'sino',
     'polar_ring2': 'sino',
@@ -97,6 +99,11 @@ def recon_setup(
     doFWringremoval=True,  # Fourier-wavelet ring removal
     doTIringremoval=False,  # Titarenko ring removal
     doSFringremoval=False,  # Smoothing filter ring removal
+    doVoringremoval=False, #Vo ring removal
+    ringVo_snr= 1.5, #Ring Removal SNR: Sensitivity of large stripe detection method. Smaller is more sensitive. No affect on small stripes. Recommended values: 1.1 -- 3.0.
+    ringVo_la_size=50, #Large Ring Size: Window size of the median filter to remove large stripes. Set to appx width of large stripes -- should be larger value than Small Ring Size. Always choose odd value, set to 1 to turn off.
+    ringVo_sm_size=15, #Small Ring Size: Window size of the median filter to remove small stripes. Larger is stronger but takes longer. Set to appx width of small stripes. Always choose odd value, set to 1 to turn off.
+    ringVo_dim=1, #Dimension of the window. Default 1. Can be 1 or 2.
     ringSigma=3,  # damping parameter in Fourier space (Fourier-wavelet ring removal)
     ringLevel=8,  # number of wavelet transform levels (Fourier-wavelet ring removal)
     ringWavelet='db5',  # type of wavelet filter (Fourier-wavelet ring removal)
@@ -109,7 +116,6 @@ def recon_setup(
     kev=24.0,  # energy level (phase retrieval)
     butterworth_cutoff=0.25,  # 0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
     butterworth_order=2,  # for reconstruction
-    doTranslationCorrection=False,  # correct for linear drift during scan
     xshift=0,  # undesired dx transation correction (from 0 degree to 180 degree proj)
     yshift=0,  # undesired dy transation correction (from 0 degree to 180 degree proj)
     doPolarRing=False,  # ring removal
@@ -141,7 +147,7 @@ def recon_setup(
     nmRatio=1.0,  # ratio of radius of circular mask to edge of reconstructed image (nm)
     nmSinoOrder=False,  # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180=False,  # use 360 to 180 conversion
-    castTo8bit=False,  # convert data to 8bit before writing
+    castTo8bit=0,  # convert data to 8bit before writing. If set to 2, write a 32bit hdf5 version IN ADDITION to 8bit tifs
     cast8bit_min=-10,  # min value if converting to 8bit
     cast8bit_max=30,  # max value if converting to 8bit
     useNormalize_nf=False,  # normalize based on background intensity (nf)
@@ -179,6 +185,14 @@ def recon_setup(
     lensdistortioncenter=(1280,1080),
     lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
     minimum_transmission = 0.01,
+    scale_source_current = False,
+    writehdf5 = False,
+    override_dark_value = False,
+    dark_value = 100,
+    do_translation_correction = False, #if there is a linear shift of the sample during the course of the scan, correct for it by turning this on.
+    translation_correction_dx = 0, #correct for shift in x during scan (horizontal)
+    translation_correction_dy = 0, #correct for linear shift in y during scan (vertical)
+    translation_correction_interp = False,
     *args, **kwargs
     ):
 
@@ -274,14 +288,11 @@ def recon_setup(
         ndark = int(dxchange.read_hdf5(os.path.join(inputPath, filename), "/process/acquisition/dark_fields/num_dark_fields")[0])
         ind_dark = list(range(0, ndark))
         propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/camera_motor_stack/setup/camera_distance")[0]
-        if (propagation_dist == 0):
-            propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename),
-                                                  "/measurement/instrument/camera_motor_stack/setup/camera_distance")[1]
+        if (propagation_dist == 0):																
+            propagation_dist = dxchange.read_hdf5(os.path.join(inputPath, filename),"/measurement/instrument/camera_motor_stack/setup/camera_distance")[1]
         kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[0] / 1000
         if (kev == 0):
-            kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[
-                      1] / 1000
-
+            kev = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/monochromator/energy")[1] / 1000
         if (isinstance(kev, int) or isinstance(kev, float)):
             if kev > 1000:
                 kev = 30.0
@@ -374,6 +385,8 @@ def recon_setup(
                 tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename))
                 flat = tomobf
         tomo = tomo.astype(np.float32)
+        if override_dark_value:
+            dark = dark*0+dark_value
         if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
             tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
             if bfexposureratio != 1:
@@ -382,6 +395,8 @@ def recon_setup(
             tomopy.normalize(tomo, flat, dark, out=tomo)
             if bfexposureratio != 1:
                 tomo = tomo * bfexposureratio
+        if do_translation_correction:
+            tomo = linear_translation_correction(tomo, dx=translation_correction_dx,dy=translation_correction_dy,dx0=0, dy0=0, interpolation=translation_correction_interp)
 
         if corFunction == 'vo':
 
@@ -402,6 +417,8 @@ def recon_setup(
                                                                                  sino=(sinoused[0], sinoused[0] + 1, 1))
                         flat = tomobf
             tomovo = tomovo.astype(np.float32)
+            if override_dark_value:
+                dark = dark*0+dark_value
 
             if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
                 tomopy.normalize_nf(tomovo, flat, dark, floc, out=tomovo)
@@ -414,8 +431,6 @@ def recon_setup(
 
             cor = tomopy.find_center_vo(tomovo, ind=voInd, smin=voSMin, smax=voSMax, srad=voSRad, step=voStep,
                                             ratio=voRatio, drop=voDrop)
-
-
         elif corFunction == 'nm':
             cor = tomopy.find_center(tomo, tomopy.angles(numangles, angle_offset, angle_offset - angularrange),
                                      ind=nmInd, init=nmInit, tol=nmTol, mask=nmMask, ratio=nmRatio,
@@ -425,37 +440,41 @@ def recon_setup(
                 lastcor = int(np.floor(numangles / 2) - 1)
             else:
                 lastcor = numangles - 1
-            # I don't want to see the warnings about the reader using a deprecated variable in dxchange
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                if (filetype == 'als'):
-                    tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
-                elif (filetype == 'als1131'):
-                    tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
-                elif (filetype == 'dxfile'):
-                    tomo, flat, dark, coranglelist = dxchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                        0, lastcor, lastcor-1))  # dtype=None, , )
-                elif (filetype == 'sls'):
-                    tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                        timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
-                else:
-                    return
-                if bffilename is not None:
-                    if (filetype == 'als'):
-                        tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename))
-                        flat = tomobf
-                    elif (filetype == 'als1131'):
-                        tomobf, flatbf, darkbf, flocbf = read_als_1131h5(os.path.join(inputPath, bffilename))
-                        flat = tomobf
-            tomo = tomo.astype(np.float32)
-            if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
-                tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
-                if bfexposureratio != 1:
-                    tomo = tomo * bfexposureratio
-            else:
-                tomopy.normalize(tomo, flat, dark, out=tomo)
-                if bfexposureratio != 1:
-                    tomo = tomo * bfexposureratio
+            # # I don't want to see the warnings about the reader using a deprecated variable in dxchange
+            # with warnings.catch_warnings():
+            #     warnings.simplefilter("ignore")
+            #     if (filetype == 'als'):
+            #         tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
+            #     elif (filetype == 'als1131'):
+            #         tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath, filename), ind_tomo=(0, lastcor))
+            #     elif (filetype == 'dxfile'):
+            #         tomo, flat, dark, coranglelist = dxchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+            #             0, lastcor, lastcor-1))  # dtype=None, , )
+            #     elif (filetype == 'sls'):
+            #         tomo, flat, dark, coranglelist = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
+            #             timepoint * numangles, (timepoint + 1) * numangles, numangles - 1))  # dtype=None, , )
+            #     else:
+            #         return
+            #     if bffilename is not None:
+            #         if (filetype == 'als'):
+            #             tomobf, flatbf, darkbf, flocbf = dxchange.read_als_832h5(os.path.join(inputPath, bffilename))
+            #             flat = tomobf
+            #         elif (filetype == 'als1131'):
+            #             tomobf, flatbf, darkbf, flocbf = read_als_1131h5(os.path.join(inputPath, bffilename))
+            #             flat = tomobf
+            # tomo = tomo.astype(np.float32)
+            # if override_dark_value:
+            #     dark = dark*0+dark_value
+            # if useNormalize_nf and ((filetype == 'als') or (filetype == 'als1131')):
+            #     tomopy.normalize_nf(tomo, flat, dark, floc, out=tomo)
+            #     if bfexposureratio != 1:
+            #         tomo = tomo * bfexposureratio
+            # else:
+            #     tomopy.normalize(tomo, flat, dark, out=tomo)
+            #     if bfexposureratio != 1:
+            #         tomo = tomo * bfexposureratio
+            # if do_translation_correction:
+            #     tomo = linear_translation_correction(tomo, dx=translation_correction_dx,dy=translation_correction_dy, interpolation=translation_correction_interp)
             cor = tomopy.find_center_pc(tomo[0], tomo[-1], tol=0.25)
         elif corFunction == 'skip': #use this to get back the tomo variable without running processing
             cor = numrays/2
@@ -487,6 +506,8 @@ def recon_setup(
         function_list.append('beam_hardening')
     if doFWringremoval:
         function_list.append('remove_stripe_fw')
+    if doVoringremoval:
+        function_list.append('remove_stripe_vo')
     if doTIringremoval:
         function_list.append('remove_stripe_ti')
     if doSFringremoval:
@@ -499,6 +520,8 @@ def recon_setup(
         function_list.append('do_360_to_180')
     if doPhaseRetrieval:
         function_list.append('phase_retrieval')
+    if do_translation_correction:
+        function_list.append('translation_correction')    
     if dorecon:
         function_list.append('recon_mask')
     if doPolarRing:
@@ -531,6 +554,11 @@ def recon_setup(
         "outlier_diff2D": outlier_diff2D,  # difference between good data and outlier data (outlier removal)
         "outlier_size2D": outlier_size2D,  # radius around each pixel to look for outliers (outlier removal)
         "doFWringremoval": doFWringremoval,  # Fourier-wavelet ring removal
+        "doVoringremoval": doVoringremoval,  # Fourier-wavelet ring removal
+        "ringVo_snr": ringVo_snr, #Ring Removal SNR: Sensitivity of large stripe detection method. Smaller is more sensitive. No affect on small stripes. Recommended values: 1.1 -- 3.0.
+        "ringVo_la_size": ringVo_la_size, #Large Ring Size: Window size of the median filter to remove large stripes. Set to appx width of large stripes -- should be larger value than Small Ring Size. Always choose odd value, set to 1 to turn off.
+        "ringVo_sm_size": ringVo_sm_size, #Small Ring Size: Window size of the median filter to remove small stripes. Larger is stronger but takes longer. Set to appx width of small stripes. Always choose odd value, set to 1 to turn off.
+        "ringVo_dim": ringVo_dim, #Dimension of the window. Default 1. Can be 1 or 2.
         "doTIringremoval": doTIringremoval,  # Titarenko ring removal
         "doSFringremoval": doSFringremoval,  # Smoothing filter ring removal
         "ringSigma": ringSigma,  # damping parameter in Fourier space (Fourier-wavelet ring removal)
@@ -544,8 +572,7 @@ def recon_setup(
         "propagation_dist": propagation_dist,  # sample-to-scintillator distance (phase retrieval)
         "kev": kev,  # energy level (phase retrieval)
         "butterworth_cutoff": butterworth_cutoff,  # 0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
-        "butterworth_order": butterworth_order,  # for reconstruction
-        "doTranslationCorrection": doTranslationCorrection,  # correct for linear drift during scan
+        "butterworth_order": butterworth_order,  # for reconstruction													   
         "xshift": xshift,  # undesired dx transation correction (from 0 degree to 180 degree proj)
         "yshift": yshift,  # undesired dy transation correction (from 0 degree to 180 degree proj)
         "doPolarRing": doPolarRing,  # ring removal
@@ -576,7 +603,7 @@ def recon_setup(
         "nmRatio": nmRatio,  # ratio of radius of circular mask to edge of reconstructed image (nm)
         "nmSinoOrder": nmSinoOrder,  # if True, analyzes in sinogram space. If False, analyzes in radiograph space
         "use360to180": use360to180,  # use 360 to 180 conversion
-        "castTo8bit": castTo8bit,  # convert data to 8bit before writing
+        "castTo8bit": castTo8bit,  # convert data to 8bit before writing. If set to 2, write a 32bit hdf5 version IN ADDITION to 8bit tifs
         "cast8bit_min": cast8bit_min,  # min value if converting to 8bit
         "cast8bit_max": cast8bit_max,  # max value if converting to 8bit
         "useNormalize_nf": useNormalize_nf,  # normalize based on background intensity (nf)
@@ -624,6 +651,14 @@ def recon_setup(
         "lensdistortioncenter": lensdistortioncenter,
         "lensdistortionfactors": lensdistortionfactors,
         "minimum_transmission": minimum_transmission,
+        "scale_source_current": scale_source_current,
+        "writehdf5": writehdf5,
+        "override_dark_value": override_dark_value,
+        "dark_value": dark_value,
+        "do_translation_correction": do_translation_correction,
+        "translation_correction_dx": translation_correction_dx,
+        "translation_correction_dy": translation_correction_dy,
+        "translation_correction_interp": translation_correction_interp,
     }
 
     #return second variable tomo, (first and last normalized image), to use it for manual COR checking
@@ -651,6 +686,11 @@ def recon(
     outlier_diff2D = 750, # difference between good data and outlier data (outlier removal)
     outlier_size2D = 3, # radius around each pixel to look for outliers (outlier removal)
     doFWringremoval = True,  # Fourier-wavelet ring removal
+    doVoringremoval = False,  # Fourier-wavelet ring removal
+    ringVo_snr= 1.5, #Ring Removal SNR: Sensitivity of large stripe detection method. Smaller is more sensitive. No affect on small stripes. Recommended values: 1.1 -- 3.0.
+    ringVo_la_size=50, #Large Ring Size: Window size of the median filter to remove large stripes. Set to appx width of large stripes -- should be larger value than Small Ring Size. Always choose odd value, set to 1 to turn off.
+    ringVo_sm_size=15, #Small Ring Size: Window size of the median filter to remove small stripes. Larger is stronger but takes longer. Set to appx width of small stripes. Always choose odd value, set to 1 to turn off.
+    ringVo_dim=1, #Dimension of the window. Default 1. Can be 1 or 2.
     doTIringremoval = False, # Titarenko ring removal
     doSFringremoval = False, # Smoothing filter ring removal
     ringSigma = 3, # damping parameter in Fourier space (Fourier-wavelet ring removal)
@@ -665,7 +705,6 @@ def recon(
     kev = 24.0, # energy level (phase retrieval)
     butterworth_cutoff = 0.25, #0.1 would be very smooth, 0.4 would be very grainy (reconstruction)
     butterworth_order = 2, # for reconstruction
-    doTranslationCorrection = False, # correct for linear drift during scan
     xshift = 0, # undesired dx transation correction (from 0 degree to 180 degree proj)
     yshift = 0, # undesired dy transation correction (from 0 degree to 180 degree proj)
     doPolarRing = False, # ring removal
@@ -696,7 +735,7 @@ def recon(
     nmRatio = 1.0, # ratio of radius of circular mask to edge of reconstructed image (nm)
     nmSinoOrder = False, # if True, analyzes in sinogram space. If False, analyzes in radiograph space
     use360to180 = False, # use 360 to 180 conversion
-    castTo8bit = False, # convert data to 8bit before writing
+    castTo8bit = 0, # convert data to 8bit before writing. If set to 2, write a 32bit hdf5 version IN ADDITION to 8bit tifs
     cast8bit_min=-10, # min value if converting to 8bit
     cast8bit_max=30, # max value if converting to 8bit
     useNormalize_nf = False, # normalize based on background intensity (nf)
@@ -740,6 +779,14 @@ def recon(
     lensdistortioncenter = (1280,1080),
     lensdistortionfactors = (1.00015076, 1.9289e-06, -2.4325e-08, 1.00439e-11, -3.99352e-15),
     minimum_transmission = 0.01,
+    scale_source_current= False,
+    writehdf5 = False,
+    override_dark_value = False,
+    dark_value = 100,
+    do_translation_correction = False,
+    translation_correction_dx = 0,
+    translation_correction_dy = 0,
+    translation_correction_interp = False,
     *args, **kwargs
     ):
 
@@ -782,7 +829,18 @@ def recon(
     if not dorecon:
         rec = 0
 
+    if scale_source_current and (filetype == 'dxfile'): #for now only works for dxchange format files
+        source_current = dxchange.read_hdf5(os.path.join(inputPath, filename), "/measurement/instrument/source/current") # currents in array
+        image_key = dxchange.read_hdf5(os.path.join(inputPath, filename), "/exchange/image_key") # key for if image is tomo, dark field, or bright
+        dark_image_key = source_current[image_key == 2]
+        dark_image_key.astype(np.float32,copy=False)
+        flat_image_key = source_current[image_key == 1]
+        flat_image_key.astype(np.float32,copy=False)
+        tomo_image_key = source_current[image_key == 0]
+        tomo_image_key.astype(np.float32,copy=False)
+        
     while True: # Loop over reading data in certain chunking direction
+        
         if axis=='proj':
             niter = numprojchunks
         else:
@@ -791,44 +849,45 @@ def recon(
             if verbose_printing:
                 print("{} chunk {} of {}".format(axis, y+1, niter))
             # The standard case. Unless the combinations below are in our function list, we read darks and flats normally, and on next chunck proceed to "else."
+            which_projections = (projused[0], projused[1], projused[2])
             if curfunc == 0 and not (('normalize_nf' in function_list and 'remove_outlier2d' in function_list) or ('remove_outlier1d' in function_list and 'remove_outlier2d' in function_list)):
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     if axis=='proj':
+                        which_projections = (y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]) # get_projections that we are using
                         if (filetype=='als'):
-                            tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1],sinoused[2]))
+                            tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(sinoused[0],sinoused[1],sinoused[2]))
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
                                 flat = tomobf
                         elif (filetype=='als1131'):
-                            tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1],sinoused[2]))
+                            tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(sinoused[0],sinoused[1],sinoused[2]))
                             if bffilename is not None:
                                 tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1],sinoused[2])) #I don't think we need this for separate bf: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),
                                 flat = tomobf
                         elif (filetype == 'dxfile'):
                             tomo, flat, dark, _= dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0,
-                                                               proj=( y * projused[2] * num_proj_per_chunk + projused[0],
-                                                                     + np.minimum((y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]), projused[2]),
+                                                               proj=(which_projections),
                                                                sino=sinoused)  # dtype=None, , )
                         elif (filetype=='sls'):
                             tomo, flat, dark, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
                             break
                     else:
+                        which_projections = (projused[0],projused[1],projused[2])
                         if (filetype == 'als'):
-                            tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                            tomo, flat, dark, floc = dxchange.read_als_832h5(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
                             if bffilename is not None:
                                 tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath, bffilename),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
                                 flat = tomobf
                         elif (filetype == 'als1131'):
-                            tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
+                            tomo, flat, dark, floc = read_als_1131h5(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]))
                             if bffilename is not None:
                                 tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath, bffilename),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2])) # I don't think we need this for separate bf: ind_tomo=range(projused[0],projused[1],projused[2]),
                                 flat = tomobf
                         elif (filetype == 'dxfile'):
                                 tomo, flat, dark, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0,
-                                                               proj=( projused[0],
-                                                                      projused[1], projused[2]),
+                                                               proj=( which_projections),
                                                                sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
                                                                      np.minimum(
                                                                          (y + 1) * sinoused[2] * num_sino_per_chunk +
@@ -843,24 +902,23 @@ def recon(
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
                     if axis=='proj':
+                        which_projections = y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]
                         if (filetype == 'als') or (filetype == 'als1131'):
-                            tomo = read_als_h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]), bl=filetype)
+                            tomo = read_als_h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(sinoused[0],sinoused[1], sinoused[2]), bl=filetype)
                         elif (filetype == 'dxfile'):
-                            tomo, _, _, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                            y * projused[2] * num_proj_per_chunk + projused[0],
-                            np.minimum((y + 1) * projused[2] * num_proj_per_chunk + projused[0],
-                                                               projused[1]), projused[2]),
+                            tomo, _, _, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(which_projections),
                                                      sino=sinoused)  # dtype=None, , )
                         elif (filetype=='sls'):
                             tomo, _, _, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
                             break
                     else:
+                        which_projections = projused[0],projused[1],projused[2]
                         if (filetype == 'als') or (filetype == 'als1131'):
-                            tomo = read_als_h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]),bl=filetype)
+                            tomo = read_als_h5_tomo_only(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]),bl=filetype)
                         elif (filetype == 'dxfile'):
                             tomo, _, _, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                             projused[0], projused[1], projused[2]),
+                             which_projections),
                                                      sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
                                                            np.minimum(
                                                                (y + 1) * sinoused[2] * num_sino_per_chunk + sinoused[0],
@@ -872,12 +930,13 @@ def recon(
             # Handles the reading of darks and flats, once we know the chunking direction will not change before normalizing.
             elif ('remove_outlier2d' == function_list[curfunc] and 'normalize' in function_list) or 'normalize_nf' == function_list[curfunc]:
                 if axis == 'proj':
+                    which_projections = y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]
                     start, end = y * num_proj_per_chunk, np.minimum((y + 1) * num_proj_per_chunk,numprojused)
                     tomo = dxchange.reader.read_hdf5(tempfilenames[curtemp],'/tmp/tmp',slc=((start,end,1),(0,numslices,1),(0,numrays,1))) #read in intermediate file
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         if (filetype == 'als') or (filetype == 'als1131'):
-                            flat, dark, floc = read_als_h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]),sino=(sinoused[0],sinoused[1], sinoused[2]),bl=filetype)
+                            flat, dark, floc = read_als_h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(sinoused[0],sinoused[1], sinoused[2]),bl=filetype)
                             if bffilename is not None:
                                 if filetype == 'als':
                                     tomobf, _, _, _ = dxchange.read_als_832h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
@@ -886,25 +945,21 @@ def recon(
                                     tomobf, _, _, _ = read_als_1131h5(os.path.join(inputPath,bffilename),sino=(sinoused[0],sinoused[1], sinoused[2])) #I don't think we need this since it is full tomo in separate file: ind_tomo=range(y*projused[2]*num_proj_per_chunk+projused[0], np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2])
                                     flat = tomobf
                         elif (filetype == 'dxfile'):
-                                _, flat, dark, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                                y * projused[2] * num_proj_per_chunk + projused[0],
-                                 np.minimum(
-                                    (y + 1) * projused[2] * num_proj_per_chunk + projused[0], projused[1]),
-                                projused[2]), sino=sinoused)  # dtype=None, , )
+                                _, flat, dark, _ = dxchange.exchange.read_aps_tomoscan_hdf5(os.path.join(inputPath, filename), exchange_rank=0, proj=(which_projections), sino=sinoused)  # dtype=None, , )
                         elif (filetype=='sls'):
                             _, flat, dark, _ = read_sls(os.path.join(inputPath,filename),  exchange_rank=0, proj=(timepoint*numangles+y*projused[2]*num_proj_per_chunk+projused[0],timepoint*numangles+np.minimum((y + 1)*projused[2]*num_proj_per_chunk+projused[0],projused[1]),projused[2]), sino=sinoused) #dtype=None, , )
                         else:
                             break
                 else:
+                    which_projections = projused[0],projused[1],projused[2]
                     start, end = y * num_sino_per_chunk, np.minimum((y + 1) * num_sino_per_chunk,numsinoused)
                     tomo = dxchange.reader.read_hdf5(tempfilenames[curtemp],'/tmp/tmp',slc=((0,numangles,1),(start,end,1),(0,numrays,1)))
                     with warnings.catch_warnings():
                         warnings.simplefilter("ignore")
                         if (filetype == 'als') or (filetype == 'als1131'):
-                            flat, dark, floc = read_als_h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(projused[0],projused[1],projused[2]),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]),bl=filetype)
+                            flat, dark, floc = read_als_h5_non_tomo(os.path.join(inputPath,filename),ind_tomo=range(*which_projections),sino=(y*sinoused[2]*num_sino_per_chunk+sinoused[0],np.minimum((y + 1)*sinoused[2]*num_sino_per_chunk+sinoused[0],sinoused[1]),sinoused[2]),bl=filetype)
                         elif (filetype == 'dxfile'):
-                            _, flat, dark, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(
-                             projused[0],  projused[1], projused[2]),
+                            _, flat, dark, _, _ = read_sls(os.path.join(inputPath, filename), exchange_rank=0, proj=(which_projections),
                                                         sino=(y * sinoused[2] * num_sino_per_chunk + sinoused[0],
                                                               np.minimum(
                                                                   (y + 1) * sinoused[2] * num_sino_per_chunk + sinoused[
@@ -940,25 +995,43 @@ def recon(
                     print(func_name, end=" ")
                 curtime = time.time()
                 if func_name == 'write_raw':
-                    dxchange.write_tiff_stack(tomo, fname=filenametowrite,start=y * num_proj_per_chunk + projused[0])
+                    dxchange.write_tiff_stack(tomo, fname=filenametowrite+'_raw',start=y * num_proj_per_chunk + projused[0])
                     if y == 0:
-                        dxchange.write_tiff_stack(flat, fname=filenametowrite+'bak',start=0)
-                        dxchange.write_tiff_stack(dark, fname=filenametowrite + 'drk', start=0)
+                        dxchange.write_tiff_stack(flat, fname=filenametowrite+'_bak',start=0)
+                        dxchange.write_tiff_stack(dark, fname=filenametowrite + '_drk', start=0)
                 elif func_name == 'remove_outlier1d':
                     tomo = tomo.astype(np.float32,copy=False)
                     remove_outlier1d(tomo, outlier_diff1D, size=outlier_size1D, out=tomo)
                 elif func_name == 'remove_outlier2d':
                     tomo = tomo.astype(np.float32,copy=False)
-                    tomopy.remove_outlier(tomo, outlier_diff2D, size=outlier_size2D, axis=0, out=tomo)
+                    tomopy.remove_outlier(tomo, outlier_diff2D, size=outlier_size2D, axis=0, out=tomo)                   
                 elif func_name == 'normalize_nf':
+                    if override_dark_value:
+                        dark = dark*0+dark_value
+                    if scale_source_current and (filetype == 'dxfile'): #for now only works for dxchange format files
+                        dark = dark.astype(np.float32,copy=False)/dark_image_key[:,None,None]
+                        flat = flat.astype(np.float32,copy=False)/flat_image_key[:,None,None]
+                        tomo = tomo.astype(np.float32,copy=False)/tomo_image_key[which_projections[0]:which_projections[1]:which_projections[2],None,None]
+
                     tomo = tomo.astype(np.float32,copy=False)
+                    flat = flat.astype(np.float32,copy=False)
+                    dark = dark.astype(np.float32,copy=False)
+                    
                     tomopy.normalize_nf(tomo, flat, dark, floc_independent, out=tomo) #use floc_independent b/c when you read file in proj chunks, you don't get the correct floc returned right now to use here.
                     if bfexposureratio != 1:
                         if verbose_printing:
                             print("correcting bfexposureratio")
                         tomo = tomo * bfexposureratio
                 elif func_name == 'normalize':
+                    if override_dark_value:
+                        dark = dark*0+dark_value
+                    if scale_source_current and (filetype == 'dxfile'): #for now only works for dxchange format files
+                        dark = dark.astype(np.float32,copy=False)/dark_image_key[:,None,None]
+                        flat = flat.astype(np.float32,copy=False)/flat_image_key[:,None,None]
+                        tomo = tomo.astype(np.float32,copy=False)/tomo_image_key[which_projections[0]:which_projections[1]:which_projections[2],None,None]
                     tomo = tomo.astype(np.float32,copy=False)
+                    flat = flat.astype(np.float32,copy=False)
+                    dark = dark.astype(np.float32,copy=False)
                     tomopy.normalize(tomo, flat, dark, out=tomo)
                     if bfexposureratio != 1:
                         tomo = tomo * bfexposureratio
@@ -974,6 +1047,8 @@ def recon(
                     tomo = ne.evaluate('a0 + a1*tomo + a2*tomo**2 + a3*tomo**3 + a4*tomo**4 + a5*tomo**5', local_dict=loc_dict, out=tomo)
                 elif func_name == 'remove_stripe_fw':
                     tomo = tomopy.remove_stripe_fw(tomo, sigma=ringSigma, level=ringLevel, pad=True, wname=ringWavelet)
+                elif func_name == 'remove_stripe_vo': 
+                    tomo = tomopy.remove_all_stripe(tomo,snr=ringVo_snr, la_size=ringVo_la_size, sm_size=ringVo_sm_size, dim=ringVo_dim)
                 elif func_name == 'remove_stripe_ti':
                     tomo = tomopy.remove_stripe_ti(tomo, nblock=ringNBlock, alpha=ringAlpha)
                 elif func_name == 'remove_stripe_sf':
@@ -1034,16 +1109,22 @@ def recon(
                     tomo = tomopy.retrieve_phase(tomo, pixel_size=pxsize, dist=propagation_dist, energy=kev, alpha=alphaReg, pad=True)
                 
                 elif func_name == 'translation_correction':
-                    tomo = linear_translation_correction(tomo,dx=xshift,dy=yshift,interpolation=False)
+                    startTrans, endTrans = y * num_proj_per_chunk, np.minimum((y + 1) * num_proj_per_chunk,numprojused)
+                    # numprojused is number of total projections. (with 1 added to include the last projection)
+                    translation_correction_dx0 = float(startTrans)/numprojused*translation_correction_dx
+                    translation_correction_dx1 = float(endTrans-1)/numprojused*translation_correction_dx
+                    translation_correction_dy0 = float(startTrans)/numprojused*translation_correction_dy
+                    translation_correction_dy1 = float(endTrans-1)/numprojused*translation_correction_dy
+                    tomo = linear_translation_correction(tomo,dx=translation_correction_dx1,dy=translation_correction_dy1,dx0=translation_correction_dx0,dy0=translation_correction_dy0,interpolation=translation_correction_interp)
                     
                 elif func_name == 'recon_mask':
-                    tomo = tomopy.pad(tomo, 2, npad=npad, mode='edge')
-
+                    tomo = pad(tomo, 2, npad=npad, mode='edge')
                     if projIgnoreList is not None:
                         for badproj in projIgnoreList:
                             tomo[badproj] = 0
                     rec = tomopy.recon(tomo, anglelist, center=cor+npad, algorithm=recon_algorithm, filter_name='butterworth', filter_par=[butterworth_cutoff, butterworth_order])
                     rec = rec[:, npad:-npad, npad:-npad]
+                    
                     rec /= pxsize  # convert reconstructed voxel values from 1/pixel to 1/cm
                     rec = tomopy.circ_mask(rec, 0)
                     tomo = tomo[:, :, npad:-npad]
@@ -1054,20 +1135,26 @@ def recon(
                     rec = np.ascontiguousarray(rec, dtype=np.float32)
                     rec = tomopy.remove_ring(rec, theta_min=Rarc2, rwidth=Rmaxwidth2, thresh_max=Rtmax2, thresh=Rthr2, thresh_min=Rtmin2,out=rec)
                 elif func_name == 'castTo8bit':
+                    if (castTo8bit == 2) and (writereconstruction == 1):
+                        dxchange.writer.write_hdf5(rec, fname=filenametowrite+'_32bit', gname='rec', dname='rec', overwrite=False, appendaxis=0)
                     rec = convert8bit(rec, cast8bit_min, cast8bit_max)
                 elif func_name == 'write_reconstruction':
                     if dorecon:
-                        if sinoused[2] == 1:
-                            dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
+                        if writehdf5 == 1:
+                            dxchange.writer.write_hdf5(rec, fname=filenametowrite, gname='rec', dname='rec', overwrite=False, appendaxis=0)
                         else:
-                            num = y*sinoused[2]*num_sino_per_chunk+sinoused[0]
-                            for sinotowrite in rec:    #fixes issue where dxchange only writes for step sizes of 1
-                                dxchange.writer.write_tiff(sinotowrite, fname=filenametowrite + '_' + '{0:0={1}d}'.format(num, 5))
-                                num += sinoused[2]
+                            if sinoused[2] == 1:
+                                dxchange.write_tiff_stack(rec, fname=filenametowrite, start=y*num_sino_per_chunk + sinoused[0])
+                            else:
+                                num = y*sinoused[2]*num_sino_per_chunk+sinoused[0]
+                                for sinotowrite in rec:    #fixes issue where dxchange only writes for step sizes of 1
+                                    dxchange.writer.write_tiff(sinotowrite, fname=filenametowrite + '_' + '{0:0={1}d}'.format(num, 5))
+                                    num += sinoused[2]
                     else:
                         if verbose_printing:
                             print('Reconstruction was not done because dorecon was set to False.')
                 elif func_name == 'write_normalized':
+                    tomo = tomo.astype(np.float32,copy=False)
                     if projused[2] == 1:
                         dxchange.write_tiff_stack(tomo, fname=filenametowrite+'_norm', start=y * num_proj_per_chunk + projused[0])
                     else:
@@ -1202,10 +1289,11 @@ def remove_outlier1d(arr, dif, size=3, axis=0, ncore=None, out=None):
     filt_size[axis] = size
 
     with cf.ThreadPoolExecutor(ncore) as e:
+        
         slc = [slice(None)]*arr.ndim
         for i in range(ncore):
             slc[lar_axis] = chnk_slices[i]
-            e.submit(snf.median_filter, arr[slc], size=filt_size,output=tmp[slc], mode='mirror')
+            e.submit(snf.median_filter, arr[tuple(slc)], size=filt_size,output=tmp[tuple(slc)], mode='mirror')
 
     with mproc.set_numexpr_threads(ncore):
         out = ne.evaluate('where(abs(arr-tmp)>=dif,tmp,arr)', out=out)
@@ -1248,7 +1336,7 @@ def translate(data,dx=0,dy=0,interpolation=True):
             dataOut[n,:,:] = st.warp(data[n,:,:], translateFunction)
             
     if interpolation == False:
-        Npad = max(dx,dy)        
+        Npad = max(abs(dx),abs(dy))        
         drow = int(-dy) # negative matrix row increments = dy
         dcol = int(dx)  # matrix column increments = dx
         for n in range(Nproj):
@@ -1257,8 +1345,8 @@ def translate(data,dx=0,dy=0,interpolation=True):
             
     return dataOut
 
-    
-def linear_translation_correction(data,dx=100.5,dy=700.1,interpolation=True):
+
+def linear_translation_correction(data,dx=100.5,dy=700.1,dx0=0,dy0=0,interpolation=True):
 
     """
     Corrects for a linear drift in field of view (horizontal dx, vertical dy) over time. The first index indicaties time data[time,:,:] in the time series of projections. dx and dy are the final shifts in FOV position.
@@ -1272,7 +1360,13 @@ def linear_translation_correction(data,dx=100.5,dy=700.1,interpolation=True):
         total horizontal pixel offset from first (0 deg) to last (180 deg) projection 
 
     dy: int or float
-        total horizontal pixel offset from first (0 deg) to last (180 deg) projection 
+        total vertical pixel offset from first (0 deg) to last (180 deg) projection 
+        
+    dx0: int or float
+        initial  horizontal pixel offset for first projection 
+
+    dy0: int or float
+        initial  vertical pixel offset for first projection 
     
     interpolation: boolean
         True calls funtion from sckimage to interpolate image when subpixel shifts are applied
@@ -1284,13 +1378,12 @@ def linear_translation_correction(data,dx=100.5,dy=700.1,interpolation=True):
     """
 
     Nproj, Nrow, Ncol = data.shape
-    Nproj=10
     
-    dataOut = np.zeros(data0.shape)
+    dataOut = np.zeros(data.shape)
         
-    dx_n = np.linspace(0,dx,Nproj) # generate array dx[n] of pixel shift for projection n = 0, 1, ... Nproj
+    dx_n = np.linspace(dx0,dx,Nproj) # generate array dx[n] of pixel shift for projection n = 0, 1, ... Nproj
 
-    dy_n = np.linspace(0,dy,Nproj) # generate array dy[n] of pixel shift for projection n = 0, 1, ... Nproj
+    dy_n = np.linspace(dy0,dy,Nproj) # generate array dy[n] of pixel shift for projection n = 0, 1, ... Nproj
     
     if interpolation==True:
         for n in range(Nproj):
@@ -1302,7 +1395,8 @@ def linear_translation_correction(data,dx=100.5,dy=700.1,interpolation=True):
             #print(n)
 
     if interpolation==False:
-        Npad = max(dx,dy)
+        Npad = round(max(abs(dx),abs(dy)))
+        #not sure if it needs to be int but I got an error about integral type for the np.pad function when it wasn't...
         for n in range(Nproj):
             PaddedImage = np.pad(data[n,:,:],Npad,'constant') # copy single projection and pad with maximum of dx,dy
             drow = int(round(-dy_n[n])) # round shift to nearest pixel step, negative matrix row increments = dy
@@ -1311,46 +1405,6 @@ def linear_translation_correction(data,dx=100.5,dy=700.1,interpolation=True):
             #print(n)
 
     return dataOut
-
-    
-    """
-    Parameters
-    ----------
-    data: ndarray 
-        Input array, stack of 2D (x,y) images, angle in z 
-    pixelshift: float
-        total pixel offset from first (0 deg) to last (180 deg) projection 
-    
-    Returns
-    -------
-    ndarray
-       Corrected array.
-    """
-    
-    
-"""Hi Dula,
-This is roughly what I am doing in the script to 'unspiral' the superweave data:
-spd = float(int(sys.argv[2])/2048)
-x = np.zeros((2049,200,2560), dtype=np.float32)
-blks = np.round(np.linspace(0,2049,21)).astype(np.int)
-for i in range(0,20):
-    dat = dxchange.read_als_832h5(fn, ind_tomo=range(blks[i],blks[i+1]))
-    prj = tomopy.normalize_nf(dat[0],dat[1],dat[2],dat[3])
-    for ik,j in enumerate(range(blks[i],blks[i+1])):
-        l = prj.shape[1]//2-j*spd
-        li = int(l)
-        ri = li+200
-        fc = l-li
-        x[j] = (1-fc)*prj[ik,li:ri]
-        x[j] += fc*prj[ik,li+1:ri+1]
-dxchange.writer.write_hdf5(x, fname=fn[:-3]+'_unspiral.h5', overwrite=True, gname='tmp', dname='tmp', appendaxis=0)
-
-This processes the (roughly) central 200 slices, and saves it to a new file. The vertical speed is one of the input arguments, and I simply estimate it manually by looking at the first and last projection, shifting them by 'np.roll'. The input argument is the total number of pixels that are shifted over the whole scan (which is then converted to pixels per projection by dividing by the number of projections-1).
-I don't really remember why I wrote my own code, but maybe I was running into problems using scikit-image as well. The current code uses linear interpolation, and gives pretty good results for the data I tested.
-
-Best,
-
-Daniel"""
     
     
 def convertthetype(val):
@@ -1640,6 +1694,122 @@ def read_sls(fname, exchange_rank=0, proj=None, sino=None, dtype=None):
         theta = theta[proj[0]:proj[1]:proj[2]]
 
     return tomo, flat, dark, theta
+
+
+
+def pad(arr, axis, npad=None, mode='constant', ncore=None, **kwargs):
+    """
+    Pad an array along specified axis.
+
+    Parameters
+    ----------
+    arr : ndarray
+        Input array.
+    axis : int
+        Axis along which padding will be performed.
+    npad : int, optional
+        New dimension after padding.
+    mode : str or function
+        One of the following string values or a user supplied function.
+
+        'constant'
+            Pads with a constant value.
+        'edge'
+            Pads with the edge values of array.
+    constant_values : float, optional
+        Used in 'constant'. Pad value
+    ncore : int, optional
+        Number of cores that will be assigned to jobs.
+
+    Returns
+    -------
+    ndarray
+        Padded 3D array.
+    """
+
+    allowedkwargs = {'constant': ['constant_values'],
+                     'edge': [], }
+
+    kwdefaults = {'constant_values': 0, }
+
+    if isinstance(mode, str):
+        if mode not in allowedkwargs:
+            raise ValueError("'mode' keyword value '{}' not in allowed values {}".format(mode, list(allowedkwargs.keys())))
+        for key in kwargs:
+            if key not in allowedkwargs[mode]:
+                raise ValueError('%s keyword not in allowed keywords %s' %
+                                 (key, allowedkwargs[mode]))
+        for kw in allowedkwargs[mode]:
+            kwargs.setdefault(kw, kwdefaults[kw])
+    else:
+        raise ValueError('mode keyword value must be string, got %s: ' %
+                         type(mode))
+
+    if npad is None:
+        npad = _get_npad(arr.shape[axis])
+
+    newshape = list(arr.shape)
+    newshape[axis] += 2*npad
+
+    slc_in, slc_l, slc_r, slc_l_v, slc_r_v = _get_slices(arr.shape, axis, npad)
+    # convert to tuples
+    slc_in = tuple(slc_in)
+    slc_l = tuple(slc_l)
+    slc_r = tuple(slc_r)
+    slc_l_v = tuple(slc_l_v)
+    slc_r_v = tuple(slc_r_v)
+
+    out = np.empty(newshape, dtype=arr.dtype)
+    if arr.dtype in [np.float32, np.float64,
+                     np.int32, np.int64, np.complex128]:
+        # Datatype supported by numexpr
+        with mproc.set_numexpr_threads(ncore):
+            ne.evaluate("arr", out=out[slc_in])
+            if mode == 'constant':
+                np_cast = getattr(np, str(arr.dtype))
+                cval = np_cast(kwargs['constant_values'])
+                ne.evaluate("cval", out=out[slc_l])
+                ne.evaluate("cval", out=out[slc_r])
+            elif mode == 'edge':
+                ne.evaluate("vec", local_dict={'vec': arr[slc_l_v]},
+                            out=out[slc_l])
+                ne.evaluate("vec", local_dict={'vec': arr[slc_r_v]},
+                            out=out[slc_r])
+    else:
+        # Datatype not supported by numexpr, use numpy instead
+        out[slc_in] = arr
+        if mode == 'constant':
+            out[slc_l] = kwargs['constant_values']
+            out[slc_r] = kwargs['constant_values']
+        elif mode == 'edge':
+            out[slc_l] = arr[slc_l_v]
+            out[slc_r] = arr[slc_r_v]
+    return out
+
+
+
+def _get_npad(dim):
+    return int(np.ceil((dim * np.sqrt(2) - dim) / 2))
+
+
+def _get_slices(shape, axis, npad):
+    slc_in = [slice(None)]*len(shape)
+    slc_in[axis] = slice(npad, npad+shape[axis])
+    slc_l = [slice(None)]*len(shape)
+    slc_l[axis] = slice(0, npad)
+    slc_r = [slice(None)]*len(shape)
+    slc_r[axis] = slice(npad+shape[axis], None)
+    slc_l_v = [slice(None)]*len(shape)
+    slc_l_v[axis] = slice(0, 1)
+    slc_r_v = [slice(None)]*len(shape)
+    slc_r_v[axis] = slice(shape[axis]-1, shape[axis])
+    return slc_in, slc_l, slc_r, slc_l_v, slc_r_v
+
+
+
+
+
+
 
 #Converts spreadsheet.xlsx file with headers into dictionaries
 # def read_spreadsheet(filepath):
