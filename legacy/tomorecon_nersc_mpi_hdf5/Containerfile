@@ -75,6 +75,7 @@ RUN python -m pip install mpi4py
 ENV CC=cc
 ENV HDF5_MPI="ON"
 RUN pip install --no-binary=h5py h5py
+RUN pip install ngff_zarr dask_image numpy==1.23.2 
 # RUN pip install -v --force-reinstall --no-cache-dir --no-binary=h5py --no-build-isolation --no-deps h5py
 
 
