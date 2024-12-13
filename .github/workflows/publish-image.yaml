@@ -2,7 +2,7 @@ name: Create and publish image
 
 on:
   push:
-    branches: [ 'main' ]
+    branches: [ 'master' ]
     tags: [ 'v*' ]
 
 env:

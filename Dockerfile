@@ -3,13 +3,12 @@ FROM docker.io/library/ubuntu:latest
 WORKDIR /opt
 
 RUN \
-    apt-get update        && \
-    apt-get install --yes    \
-    build-essential      \
-    gfortran             \
-    git                  \
-    wget              && \
-    apt-get clean all
+    apt-get update && apt-get install --yes \
+    build-essential \
+    gfortran \
+    git \
+    wget && \
+    apt-get clean all && rm -rf /var/lib/apt/lists/*
 
 #miniconda
 # Download and install the latest Miniconda
@@ -37,15 +36,11 @@ RUN \
     rm -rf $mpich_prefix
 RUN /sbin/ldconfig
 
-#update conda tool
-#remove mpich/mpi that now come with anaconda
-RUN conda install --yes python=3.10
-RUN conda install -n base --yes -c conda-forge mamba 
-
-# uninstalling mpi removes essential packages, so re-add
-RUN mamba install --yes astropy cartopy cython cfitsio "dask[distributed]" scipy scikit-learn scikit-image numba h5py joblib pandas statsmodels _libgcc_mutex
-# David added these tomography related packages
-RUN mamba install --yes -c conda-forge -c astra-toolbox -c simpleitk astra-toolbox tifffile tomopy dxchange svmbir itk simpleitk  pyfftw natsort olefile tqdm zarr
+RUN conda install --yes -c conda-forge python=3.10 mamba \
+    && mamba install --yes -c conda-forge \
+       mamba astropy cartopy cython cfitsio "dask[distributed]" scipy scikit-learn scikit-image numba h5py joblib pandas statsmodels _libgcc_mutex \
+    && mamba install --yes -c conda-forge -c astra-toolbox -c simpleitk \
+       mamba astra-toolbox tifffile tomopy dxchange svmbir itk simpleitk pyfftw natsort olefile tqdm zarr
 
 # # install SYRIS
 # COPY syris syris
