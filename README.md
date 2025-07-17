@@ -14,12 +14,12 @@ On NERSC, no setup or installation is required. Just log into https://jupyter.ne
 
 * Clone repo
 ```
-git clone git@github.com:perlmutter/battery_microct.git
+git clone git@github.com:als-computing/microct.git
 ```
 
 * Create environment
 ```
-cd als_microct-recon
+cd microct
 conda env create -f environment.yml
 ```
 if conda cannot solve environment, check that channel priority is flexible 
