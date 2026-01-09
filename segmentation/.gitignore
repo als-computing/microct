@@ -1,0 +1,17 @@
+# model weights / checkpoints
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.h5
+
+# notebook checkpoints
+.ipynb_checkpoints/
+
+# local data locations (optional)
+data/
+models/
+outputs/
+runs/
+.DS_Store
+**/.DS_Store

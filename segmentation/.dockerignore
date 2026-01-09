@@ -1,0 +1,26 @@
+# Git
+.git
+.gitignore
+
+# Notebook checkpoints
+**/.ipynb_checkpoints/
+
+# Python environments
+env/
+.env/
+.venv/
+ENV/
+.ENV/
+
+# Model weights / checkpoints
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.h5
+
+# Local data and outputs
+data/
+models/
+outputs/
+runs/
